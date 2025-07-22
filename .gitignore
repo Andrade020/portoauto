@@ -1,3 +1,28 @@
+
+# Ignorar arquivos 
+*.csv
+*.xls
+*.zip
+!feriados_nacionais.xls 
+*.html
+*.tar.zst
+# exceção para  o arquivo de feriados
+*.xlsx
+*.json
+*.pdf
+*.txt
+*.png
+*.deb
+*.zst
+*.crdownload
+temp/estoques/*.crdownload
+
+Graficos_estoque-Felipe.ipynb 
+new_ext_downloader.py
+old_extratos_downloader.py
+airflow/
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
