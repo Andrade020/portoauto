@@ -136,16 +136,21 @@ def generate_summary_table(df_final, ref_date):
 def get_summary_data(caminho_dados, padrao_arquivo, ref_date_str, caminho_feriados):
     """
     Função principal que encapsula todo o processo de ETL.
+    AGORA, ELA APENAS RETORNA O DATAFRAME EM MEMÓRIA.
     """
     print("Iniciando processo de ETL...")
     ref_date = datetime.strptime(ref_date_str, '%Y-%m-%d')
     
+    # Esta parte continua igual
     df_inicial = carregar_e_limpar_dados(caminho_dados, padrao_arquivo)
     df_traduzido = df_inicial.rename(columns=MAPEAMENTO_COLUNAS)
     
     holidays = load_holidays(caminho_feriados)
     df_processed = add_calculated_columns(df_traduzido, ref_date, holidays, COST_DICT, DEFAULT_COST)
     
-    df_summary = generate_summary_table(df_processed, ref_date)
+    df_summary_com_index = generate_summary_table(df_processed, ref_date)
     print("Processo de ETL concluído.")
-    return df_summary.reset_index() # Reset index para facilitar a manipulação no Flask
+    
+    # Apenas retorne o dataframe com o índice resetado.
+    # TODO O BLOCO try/except que salvava o Excel e o SQL foi REMOVIDO.
+    return df_summary_com_index.reset_index()
