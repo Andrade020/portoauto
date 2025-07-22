@@ -4,6 +4,7 @@
 *.xls
 *.zip
 !feriados_nacionais.xls 
+!C:\Users\Leo\Desktop\Porto_Real\portoauto\src\fct_consig\flask_dashboard\templates\index.html
 *.html
 *.tar.zst
 # exceção para  o arquivo de feriados
