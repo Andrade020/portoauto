@@ -1,4 +1,4 @@
-# data_processing.py
+# /src/fct_consig/flask_dashboard/data_processing.py
 
 import pandas as pd
 import numpy as np
@@ -8,7 +8,7 @@ import os
 import glob
 from datetime import datetime
 
-# Mapeamentos e constantes (copiados do seu script original)
+# Mapeamentos e constantes (copiados do seu script original) #####
 MAPEAMENTO_COLUNAS = {
     'Convênio': 'Nome do Ente Consignado', 'CedenteCnpjCpf': 'Documento do Cedente',
     'CedenteNome': 'Nome do Cedente', 'SacadoCnpjCpf': 'Documento do Sacado',
@@ -83,25 +83,30 @@ def add_calculated_columns(df, ref_date, holidays, cost_dict, default_cost):
     df['Receita Líquida'] = df['Valor de Vencimento'] - df['Custo Total']
     return df
 
+
 def generate_summary_table(df_final, ref_date):
+    print("Iniciando geração da tabela de resumo por ente...")
     lista_entes = ['* CARTEIRA *'] + df_final['Nome do Ente Consignado'].dropna().unique().tolist()
     all_summaries = []
+    
     valor_total_carteira = df_final['Valor Atual'].sum() - df_final['Valor de PDD'].sum()
 
     for ente in lista_entes:
         is_total_portfolio = (ente == '* CARTEIRA *')
         df_ente = df_final if is_total_portfolio else df_final[df_final['Nome do Ente Consignado'] == ente]
-        
+
         if df_ente.empty:
             continue
-
+            
         mask_vencidos = df_ente['Data de Vencimento Ajustada'] <= ref_date
         df_avencer = df_ente[~mask_vencidos]
         df_vencidos = df_ente[mask_vencidos]
         
         summary = {'Nome do Ente': ente}
+        
         summary['# Parcelas'] = len(df_ente)
         summary['# Contratos'] = df_ente['Código do Contrato'].nunique()
+        
         valor_presente_total = df_ente['Valor Atual'].sum()
         valor_pdd = df_ente['Valor de PDD'].sum()
         summary['Valor Presente'] = valor_presente_total
@@ -109,39 +114,55 @@ def generate_summary_table(df_final, ref_date):
         summary['% PDD'] = valor_pdd / (valor_presente_total or 1)
         summary['Valor Líquido'] = valor_presente_total - valor_pdd
         summary['% Carteira'] = summary['Valor Líquido'] / (valor_total_carteira or 1)
+
         valor_vencido = df_vencidos['Valor Atual'].sum()
         valor_a_vencer = df_avencer['Valor Atual'].sum()
         summary['Valor A Vencer'] = valor_a_vencer
         summary['Valor Vencidos'] = valor_vencido
         summary['% Vencidos'] = valor_vencido / (valor_presente_total or 1)
-        
+
+        # *** NOVO: CÁLCULO DO PRAZO MÉDIO PONDERADO (DU) ***
+        if valor_a_vencer > 0:
+            prazo_ponderado = (df_avencer['_DIAS_UTEIS_'] * df_avencer['Valor Atual']).sum() / valor_a_vencer
+            summary['Prazo Médio (DU)'] = prazo_ponderado
+        else:
+            summary['Prazo Médio (DU)'] = 0
+
+
         if not is_total_portfolio and not df_ente.empty:
             summary['Custo Variável'] = df_ente['Custo Variável'].iloc[0]
             summary['Custo Fixo'] = df_ente['Custo Fixo'].iloc[0]
         
+        # --- LÓGICA DA TIR CORRIGIDA ---
         if valor_a_vencer > 0:
+            # Loop para calcular TIR Bruta e Líquida
             for tipo, col in {'bruta': 'Valor de Vencimento', 'líquida': 'Receita Líquida'}.items():
                 df_parcelas = df_avencer.groupby('_DIAS_UTEIS_')[col].sum()
                 dias = [0] + df_parcelas.index.tolist()
                 fluxos = [-valor_a_vencer] + df_parcelas.values.tolist()
-                summary[f'TIR {tipo} a.m.'] = calculate_xirr(fluxos, dias)
+                
+                # VERIFICAÇÃO DE ROBUSTEZ: só calcula a TIR se o fluxo total for positivo
+                if sum(fluxos) > 0:
+                    summary[f'TIR {tipo} a.m.'] = calculate_xirr(fluxos, dias)
+                else:
+                    summary[f'TIR {tipo} a.m.'] = np.nan # Retorna NaN se for prejuízo
         else:
+            # Garante que as colunas existam mesmo que não haja valor a vencer
             summary['TIR bruta a.m.'] = np.nan
             summary['TIR líquida a.m.'] = np.nan
             
         all_summaries.append(summary)
 
+    print("Geração da tabela de resumo concluída.")
     return pd.DataFrame(all_summaries).set_index('Nome do Ente')
-
+    
 def get_summary_data(caminho_dados, padrao_arquivo, ref_date_str, caminho_feriados):
     """
     Função principal que encapsula todo o processo de ETL.
-    AGORA, ELA APENAS RETORNA O DATAFRAME EM MEMÓRIA.
     """
     print("Iniciando processo de ETL...")
     ref_date = datetime.strptime(ref_date_str, '%Y-%m-%d')
     
-    # Esta parte continua igual
     df_inicial = carregar_e_limpar_dados(caminho_dados, padrao_arquivo)
     df_traduzido = df_inicial.rename(columns=MAPEAMENTO_COLUNAS)
     
@@ -149,8 +170,9 @@ def get_summary_data(caminho_dados, padrao_arquivo, ref_date_str, caminho_feriad
     df_processed = add_calculated_columns(df_traduzido, ref_date, holidays, COST_DICT, DEFAULT_COST)
     
     df_summary_com_index = generate_summary_table(df_processed, ref_date)
-    print("Processo de ETL concluído.")
     
-    # Apenas retorne o dataframe com o índice resetado.
-    # TODO O BLOCO try/except que salvava o Excel e o SQL foi REMOVIDO.
-    return df_summary_com_index.reset_index()
+    df_summary = df_summary_com_index.reset_index()
+    print("Processo de ETL concluído.")
+    df_limpo = df_summary.replace({np.nan: None})
+    
+    return df_limpo

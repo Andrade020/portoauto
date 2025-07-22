@@ -1,16 +1,14 @@
-# app.py
-
+# /src/fct_consig/flask_dashboard/app.py
+#* MbyLRdA
 import pandas as pd
 import configparser
 import os
 from flask import Flask, render_template, jsonify, request
-import plotly.express as px
-import plotly.io as pio
 
 # Importa a função de processamento de dados
 from data_processing import get_summary_data
 
-# --- CONFIGURAÇÃO E CARGA INICIAL DOS DADOS ---
+# --- CONFIGURAÇÃO E CARGA INICIAL DOS DADOS --- #
 
 # Configura o Flask
 app = Flask(__name__)
@@ -35,81 +33,70 @@ try:
     )
 except FileNotFoundError as e:
     print(f"ERRO CRÍTICO: {e}")
-    print("A aplicação não pode iniciar sem os dados. Verifique o config.cfg e os caminhos.")
-    df_summary = pd.DataFrame() # Cria um dataframe vazio para evitar que a app quebre
-
-# Define um tema padrão para os gráficos
-pio.templates.default = "plotly_white"
+    df_summary = pd.DataFrame()
 
 # --- FUNÇÕES AUXILIARES DE FORMATAÇÃO E GRÁFICOS ---
 
 def format_value(value, format_type):
     """Formata valores para exibição nos cards."""
-    if pd.isna(value):
+    if pd.isna(value) or value is None:
         return "N/A"
     if format_type == 'currency':
-        return f"R$ {value:,.2f}"
+        return f"R$ {value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     if format_type == 'percent':
-        return f"{value:.2%}"
+        return f"{value:.2%}".replace(".",",")
     if format_type == 'integer':
-        return f"{int(value):,}"
+        return f"{int(value):,}".replace(",",".")
+    if format_type == 'days':
+        return f"{int(value)} DU"
     return value
 
-def create_charts(df):
-    """Cria todos os gráficos necessários a partir do DataFrame."""
+
+def prepare_chartjs_data(df):
+    """Prepara os dados no formato que o Chart.js espera."""
     df_entes = df[df['Nome do Ente'] != '* CARTEIRA *'].copy()
+
+    # --- LÓGICA DO GRÁFICO DE PIZZA (TOP 10 + OUTROS) ---
+    df_pie_sorted = df_entes.sort_values('% Carteira', ascending=False)
     
-    # 1. Gráfico de Composição da Carteira
-    fig_pie = px.pie(
-        df_entes,
-        names='Nome do Ente',
-        values='% Carteira',
-        title='Composição da Carteira (% Valor Líquido)',
-        hole=0.3
-    )
-    fig_pie.update_traces(textposition='inside', textinfo='percent+label')
+    if len(df_pie_sorted) > 10:
+        df_top_10 = df_pie_sorted.head(10)
+        outros_sum = df_pie_sorted.iloc[10:]['% Carteira'].sum()
+        
+        outros_data = pd.DataFrame([{'Nome do Ente': 'Outros', '% Carteira': outros_sum}])
+        
+        df_pie_final = pd.concat([df_top_10, outros_data], ignore_index=True)
+    else:
+        df_pie_final = df_pie_sorted
 
-    # 2. Gráfico de Ranking de Risco
-    fig_risk = px.bar(
-        df_entes.sort_values('% Vencidos', ascending=False),
-        x='Nome do Ente',
-        y='% Vencidos',
-        title='Ranking de Risco (% Vencidos)',
-        labels={'% Vencidos': '% Vencidos', 'Nome do Ente': 'Ente'},
-        text_auto='.2%'
-    )
-    fig_risk.update_layout(yaxis_tickformat=".0%")
+    # Ordena os dataframes para os gráficos de ranking
+    df_risk_sorted = df_entes.sort_values('% Vencidos', ascending=False)
+    df_tir_sorted = df_entes.sort_values('TIR líquida a.m.', ascending=False).fillna(0)
 
-    # 3. Gráfico de Ranking de Rentabilidade
-    fig_tir = px.bar(
-        df_entes.sort_values('TIR líquida a.m.', ascending=False),
-        x='Nome do Ente',
-        y='TIR líquida a.m.',
-        title='Ranking de Rentabilidade (TIR Líquida a.m.)',
-        labels={'TIR líquida a.m.': 'TIR Líquida a.m.', 'Nome do Ente': 'Ente'},
-        text_auto='.2%'
-    )
-    fig_tir.update_layout(yaxis_tickformat=".2%")
-
-    # 4. Gráfico de Relação Risco vs. Retorno
-    fig_scatter = px.scatter(
-        df_entes,
-        x='% Vencidos',
-        y='TIR líquida a.m.',
-        text='Nome do Ente',
-        title='Risco (% Vencidos) vs. Retorno (TIR Líquida)',
-        labels={'% Vencidos': 'Risco (% Vencidos)', 'TIR líquida a.m.': 'Retorno (TIR Líquida a.m.)'}
-    )
-    fig_scatter.update_traces(textposition='top center')
-    fig_scatter.update_layout(xaxis_tickformat=".0%", yaxis_tickformat=".2%")
-
-    return {
-        'pie': fig_pie.to_json(),
-        'risk': fig_risk.to_json(),
-        'tir': fig_tir.to_json(),
-        'scatter': fig_scatter.to_json(),
+    chart_data = {
+        # Gráfico 1: Composição da Carteira (Pizza) - USA OS DADOS TRATADOS
+        'composition': {
+            'labels': df_pie_final['Nome do Ente'].tolist(),
+            'datasets': [{
+                'data': df_pie_final['% Carteira'].tolist(),
+            }]
+        },
+        # Gráfico 2: Ranking de Risco (Barras)
+        'risk': {
+            'labels': df_risk_sorted['Nome do Ente'].tolist(),
+            'datasets': [{'label': '% Vencidos', 'data': df_risk_sorted['% Vencidos'].tolist(), 'backgroundColor': 'rgba(255, 99, 132, 0.5)', 'borderColor': 'rgba(255, 99, 132, 1)', 'borderWidth': 1}]
+        },
+        # Gráfico 3: Ranking de Rentabilidade (Barras) $ 
+        'tir': {
+            'labels': df_tir_sorted['Nome do Ente'].tolist(),
+            'datasets': [{'label': 'TIR líquida a.m.', 'data': df_tir_sorted['TIR líquida a.m.'].tolist(), 'backgroundColor': 'rgba(54, 162, 235, 0.5)', 'borderColor': 'rgba(54, 162, 235, 1)', 'borderWidth': 1}]
+        },
+        # Gráfico 4: Risco vs. Retorno (Dispersão)
+        'scatter': {
+            'datasets': [{'label': 'Risco vs. Retorno por Ente', 'data': [{'x': row['% Vencidos'], 'y': row['TIR líquida a.m.'], 'ente': row['Nome do Ente']} for index, row in df_entes.iterrows()], 'backgroundColor': 'rgba(75, 192, 192, 0.5)',}]
+        }
     }
-
+    return chart_data
 
 # --- ROTAS DA APLICAÇÃO ---
 
@@ -119,34 +106,34 @@ def index():
     if df_summary.empty:
         return "<h1>Erro ao carregar os dados. Verifique os logs do servidor.</h1>"
 
-    # Pega os dados da carteira total para os KPIs iniciais
     carteira_total = df_summary[df_summary['Nome do Ente'] == '* CARTEIRA *'].iloc[0]
     
+    # *** NOVO: Adicionado 'prazo_medio' aos KPIs ***
     kpis = {
         'valor_liquido': format_value(carteira_total['Valor Líquido'], 'currency'),
         'contratos': format_value(carteira_total['# Contratos'], 'integer'),
         'inadimplencia': format_value(carteira_total['% Vencidos'], 'percent'),
         'provisionamento': format_value(carteira_total['% PDD'], 'percent'),
         'rentabilidade': format_value(carteira_total['TIR líquida a.m.'], 'percent'),
+        'prazo_medio': format_value(carteira_total['Prazo Médio (DU)'], 'days'), # NOVO KPI
     }
 
-    # Gera os gráficos
-    charts_json = create_charts(df_summary)
+    # Gera os dados para os gráficos do Chart.js
+    chart_data = prepare_chartjs_data(df_summary)
 
-    # Prepara os dados da tabela (sem a carteira total)
     table_data = df_summary[df_summary['Nome do Ente'] != '* CARTEIRA *'].to_dict(orient='records')
 
     return render_template(
         'index.html',
         kpis=kpis,
-        charts=charts_json,
+        chart_data=chart_data,
         table_data=table_data,
         data_referencia=DATA_REFERENCIA_STR
     )
 
 @app.route('/api/data')
 def get_data_for_ente():
-    """API para fornecer dados filtrados para um ente específico."""
+    """API para fornecer dados filtrados."""
     ente_selecionado = request.args.get('ente', '* CARTEIRA *')
     
     if ente_selecionado not in df_summary['Nome do Ente'].values:
@@ -154,16 +141,16 @@ def get_data_for_ente():
 
     data = df_summary[df_summary['Nome do Ente'] == ente_selecionado].iloc[0]
 
-    # Prepara os KPIs para o ente selecionado
+    # *** NOVO: Adicionado 'prazo_medio' à resposta da API ***
     kpis = {
         'valor_liquido': format_value(data['Valor Líquido'], 'currency'),
         'contratos': format_value(data['# Contratos'], 'integer'),
         'inadimplencia': format_value(data['% Vencidos'], 'percent'),
         'provisionamento': format_value(data['% PDD'], 'percent'),
-        'rentabilidade': format_value(data.get('TIR líquida a.m.'), 'percent'), # .get para segurança
+        'rentabilidade': format_value(data.get('TIR líquida a.m.'), 'percent'),
+        'prazo_medio': format_value(data.get('Prazo Médio (DU)'), 'days'), # NOVO KPI NA API
     }
     
-    # Se o ente selecionado for a carteira, a tabela mostra todos. Senão, mostra só o ente.
     if ente_selecionado == '* CARTEIRA *':
         table_data = df_summary[df_summary['Nome do Ente'] != '* CARTEIRA *'].to_dict(orient='records')
     else:
@@ -175,6 +162,6 @@ def get_data_for_ente():
         "ente_selecionado": ente_selecionado
     })
 
-
+##
 if __name__ == '__main__':
-    app.run(debug=True, port=8080) 
+    app.run(debug=True, port=5001, reloader_type='stat')
