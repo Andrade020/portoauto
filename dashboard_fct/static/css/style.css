@@ -1,0 +1,74 @@
+/* static/css/style.css */
+
+/* Configurações Gerais */
+body {
+    font-family: "Gill Sans MT", Arial, sans-serif;
+    background-color: #f9f9f9;
+    color: #313131;
+    margin: 0;
+    padding: 0;
+}
+.main-content {
+    padding: 25px;
+}
+
+/* --- CABEÇALHO --- */
+header {
+    background-color: #163f3f;
+    color: #FFFFFF;
+    padding: 20px 40px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 5px solid #76c6c5;
+}
+header .logo img {
+    height: 75px;
+}
+header .report-title {
+    text-align: left;
+    font-family: "Gill Sans MT", Arial, sans-serif;
+}
+header .report-title h1, header .report-title h2, header .report-title h3 {
+    margin: 0;
+    padding: 0;
+    font-weight: normal;
+}
+header .report-title h1 { font-size: 1.6em; }
+header .report-title h2 { font-size: 1.4em; color: #d0d0d0; }
+header .report-title h3 { font-size: 1.1em; color: #a0a0a0; }
+
+/* Estilos dos Botões e Tabelas */
+.container-botoes { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 25px; }
+.container-botoes > details { flex: 1 1 280px; border: 1px solid #76c6c5; border-radius: 8px; overflow: hidden; }
+.container-botoes > details[open] { flex-basis: 100%; }
+details summary { font-size: 1.1em; font-weight: bold; color: #FFFFFF; background-color: #163f3f; padding: 15px 20px; cursor: pointer; outline: none; list-style-type: none; }
+details summary:hover { background-color: #0e5d5f; }
+details[open] summary { background-color: #76c6c5; color: #313131; }
+details[open] summary:hover { filter: brightness(95%); }
+summary::-webkit-details-marker { display: none; }
+summary::before { content: '► '; margin-right: 8px; font-size: 0.8em;}
+details[open] summary::before { content: '▼ '; }
+details .content-wrapper { padding: 20px; background-color: #FFFFFF; }
+table.dataframe, th, td { border: 1px solid #bbbbbb; }
+table.dataframe { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 10px; vertical-align: middle; }
+th { background-color: #163f3f; color: #FFFFFF; }
+tr:nth-child(even) { background-color: #eeeeee; }
+
+/* --- RODAPÉ --- */
+footer {
+    background-color: #f0f0f0;
+    color: #555555;
+    font-size: 0.8em;
+    line-height: 1.6;
+    padding: 25px 40px;
+    margin-top: 40px;
+    border-top: 1px solid #dddddd;
+}
+footer .disclaimer {
+    margin-top: 20px;
+    font-style: italic;
+    border-top: 1px solid #dddddd;
+    padding-top: 20px;
+}
