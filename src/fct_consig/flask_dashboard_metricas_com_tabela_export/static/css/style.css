@@ -1,0 +1,22 @@
+/* Estilo para os cards de KPI */
+.kpi-card .card-body {
+    padding: 1rem;
+}
+
+/* Estilo para a célula destacada na tabela */
+.highlighted-cell {
+    background-color: #e9f5ff !important; /* Um azul bem claro */
+    font-weight: bold;
+    transition: background-color 0.3s ease-in-out;
+}
+
+/* Garante que o clique na linha da tabela tenha um cursor de ponteiro */
+#details-table tbody tr {
+    cursor: pointer;
+}
+
+/* NOVO: Estilo para a linha da tabela em alerta de risco */
+.row-alert {
+    background-color: #ffebee !important; /* Um vermelho bem claro */
+    font-weight: 500;
+}

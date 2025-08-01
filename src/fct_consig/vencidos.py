@@ -1,4 +1,4 @@
-#>><<<>>><<<>><<><<<<><><<<><<<><><>
+#>>><<<>>><<<>><<><<<<><><<<><<<><><>
 #* MbyLRdA
 # %% bibliotecas
 import pandas as pd
@@ -73,7 +73,7 @@ try:
             else:
                 print("\nConteúdo encontrado na pasta:")
                 for item in conteudo_da_pasta:
-                    print(f"  - {item}")
+                    print(f"   - {item}")
 
                 # 3. FILTRA APENAS OS ARQUIVOS .CSV E APLICA O REGEX
                 print("\nAnalisando arquivos .csv e aplicando o filtro:")
@@ -84,7 +84,7 @@ try:
                 else:
                     for basename in arquivos_csv_encontrados:
                         match_result = "MATCH" if regex.search(basename) else "NO MATCH"
-                        print(f"  - Arquivo: '{basename}' -> Resultado: {match_result}")
+                        print(f"   - Arquivo: '{basename}' -> Resultado: {match_result}")
                         if regex.search(basename):
                             lista_arquivos.append(os.path.join(caminho_pasta, basename))
 
@@ -148,7 +148,7 @@ else:
         df_final = pd.DataFrame()
 
 # ==============================================================================
-# ETAPA 2: GERAÇÃO DO RELATÓRIO COM A LÓGICA CORRIGIDA
+# ETAPA 2: GERAÇÃO DO RELATÓRIO COM A LÓGICA CORRIGIDA E NOVA COLUNA
 # ==============================================================================
 
 # %% Variaveis fixas e caminhos para o relatório
@@ -166,9 +166,11 @@ def overdue_evolution_pandas(df_input: pd.DataFrame, ref_date: date) -> pd.DataF
         "Situacao": "Situação",
         "ValorPresente": "Valor Atual"
     }
-    cols_to_use = list(rename_map.keys())
+    # <<< ALTERAÇÃO: Adiciona 'NotaPdd' para cálculo do PL >>>
+    cols_to_use = list(rename_map.keys()) + ['NotaPdd']
+    
     if not all(col in df_input.columns for col in cols_to_use):
-        print(f"[ERRO] Colunas essenciais não encontradas.")
+        print(f"[ERRO] Colunas essenciais não encontradas. Faltam: {[c for c in cols_to_use if c not in df_input.columns]}")
         return pd.DataFrame()
 
     full = df_input[cols_to_use].copy()
@@ -178,6 +180,17 @@ def overdue_evolution_pandas(df_input: pd.DataFrame, ref_date: date) -> pd.DataF
     full['Valor Atual'] = pd.to_numeric(full['Valor Atual'], errors='coerce')
 
     full.dropna(subset=["Nome do Ente Consignado", "Data de Vencimento", "Valor Atual"], inplace=True)
+
+    # <<< ADIÇÃO 1: CALCULAR O PL LÍQUIDO POR ENTE >>>
+    # Garante que as colunas para o cálculo são numéricas.
+    # Assumimos que 'NotaPdd' é a coluna com o valor de PDD.
+    full['NotaPdd'] = pd.to_numeric(full['NotaPdd'], errors='coerce').fillna(0)
+    full['Valor Atual'] = full['Valor Atual'].fillna(0)
+
+    # Agrupa por ente e calcula: Soma(Valor Presente) - Soma(PDD)
+    pl_liquido_por_ente = full.groupby('Nome do Ente Consignado').apply(
+        lambda x: x['Valor Atual'].sum() - x['NotaPdd'].sum()
+    ).rename('PL_Liquido')
 
     print("\nCalculando vencidos com base na data de referência...")
     ref_timestamp = pd.to_datetime(ref_date)
@@ -189,28 +202,35 @@ def overdue_evolution_pandas(df_input: pd.DataFrame, ref_date: date) -> pd.DataF
     if venc.empty:
         print("[INFO] Nenhum item vencido encontrado para a data de referência.")
         return pd.DataFrame()
-
-    # <<< ALTERAÇÃO AQUI: Agrupamento por Mês >>>
-    # 1. Cria uma nova coluna que representa o período (Mês/Ano) do vencimento.
-    #    Usar `dt.to_period('M')` garante que os meses serão ordenados cronologicamente.
+        
     venc['MesVencimento'] = venc['Data de Vencimento'].dt.to_period('M')
     
-    # 2. Agrupa os dados pelo novo campo 'MesVencimento' em vez da data exata.
     grp = venc.groupby(["Nome do Ente Consignado", "MesVencimento"])["Valor Atual"].sum().reset_index()
     
-    # 3. Cria a tabela dinâmica (pivot) usando os meses como colunas.
     report = grp.pivot_table(
         index="Nome do Ente Consignado",
         columns="MesVencimento",
         values="Valor Atual",
         fill_value=0
     )
-    # <<< FIM DA ALTERAÇÃO >>>
 
     if report.empty:
         return pd.DataFrame()
 
     report["Total"] = report.sum(axis=1)
+
+    # <<< ADIÇÃO 2: JUNTAR O PL E CALCULAR A NOVA COLUNA >>>
+    # Junta os valores de PL líquido ao relatório usando o nome do ente como chave.
+    report = report.join(pl_liquido_por_ente)
+
+    # Calcula a coluna '% do PL', tratando a divisão por zero.
+    report['% do PL'] = np.where(
+        report['PL_Liquido'] > 0,                                 # Condição
+        (report['Total'] / report['PL_Liquido']) * 100,          # Se verdadeiro
+        0                                                        # Se falso
+    )
+    # A coluna 'PL_Liquido' será mantida temporariamente para calcular o total geral e depois removida.
+
     report = report[report["Total"] >= 20].copy()
 
     total_final = report["Total"].sum()
@@ -220,19 +240,8 @@ def overdue_evolution_pandas(df_input: pd.DataFrame, ref_date: date) -> pd.DataF
         report["Total (%)"] = 0.0
 
     report.sort_values(by="Total", ascending=False, inplace=True)
-    report.reset_index(inplace=True)
-
-    coluna_de_texto = "Nome do Ente Consignado"
-    extras = ["Total", "Total (%)"]
-    # As colunas de data agora são períodos, então a lógica para encontrá-las permanece a mesma.
-    outras_cols = [c for c in report.columns if c not in extras and c != coluna_de_texto]
-    report = report[[coluna_de_texto] + outras_cols + extras]
-
-    if not report.empty:
-        total_geral_row = report.sum(axis=0, numeric_only=True)
-        total_geral_row[coluna_de_texto] = "Total Geral"
-        total_geral_row["Total (%)"] = 100.00
-        report.loc["Total Geral"] = total_geral_row
+    # O reset_index é movido para depois do cálculo do Total Geral para facilitar
+    # report.reset_index(inplace=True) # Movido para depois
 
     return report
 
@@ -252,23 +261,39 @@ if 'df_final' in locals() and not df_final.empty:
     if not report.empty:
         print("\nRelatório de Vencidos (baseado em datas) processado.")
 
+        # <<< ALTERAÇÃO: Lógica do Total Geral para incluir o '% do PL' corretamente >>>
+        if not report.empty:
+            total_geral_row = report.sum(axis=0, numeric_only=True)
+            total_geral_row["Nome do Ente Consignado"] = "Total Geral"
+            total_geral_row["Total (%)"] = 100.00
+            
+            # Recalcula o '% do PL' para a linha de total geral
+            if total_geral_row['PL_Liquido'] > 0:
+                total_geral_row['% do PL'] = (total_geral_row['Total'] / total_geral_row['PL_Liquido']) * 100
+            else:
+                total_geral_row['% do PL'] = 0
+
+            report.loc["Total Geral"] = total_geral_row
+
+        # Agora, removemos a coluna auxiliar e resetamos o índice
+        report.drop(columns=['PL_Liquido'], inplace=True, errors='ignore')
+        report.reset_index(inplace=True)
+
         #? --- Formatação e estilização para HTML ---
         ref_date_str = ref_date_obj.strftime("%Y-%m-%d")
         ref_date_display = ref_date_obj.strftime("%d/%m/%Y")
         data_relatorio_display = TARGET_DATE.strftime('%d/%m/%Y')
 
-        # <<< ALTERAÇÃO AQUI: Formatação das colunas de Mês/Ano >>>
-        # Converte as colunas, que são objetos de Período (ex: Period('2024-04', 'M')),
-        # para o formato de string 'MM/YYYY'.
         new_cols = [c.strftime("%m/%Y") if isinstance(c, pd.Period) else c for c in report.columns]
         report.columns = new_cols
-        # <<< FIM DA ALTERAÇÃO >>>
 
+        # <<< ALTERAÇÃO: Adiciona a nova coluna nas listas de formatação >>>
         coluna_de_texto = "Nome do Ente Consignado"
-        val_cols = [c for c in report.columns if "%" not in str(c) and "Total" not in str(c) and c != coluna_de_texto]
-        pct_col = ["Total (%)"]
+        extras = ["Total", "Total (%)", "% do PL"]
+        val_cols = [c for c in report.columns if c not in extras and c != coluna_de_texto]
+        pct_cols = ["Total (%)", "% do PL"]
         
-        all_values = report.loc[report.index != 'Total Geral', val_cols].to_numpy().flatten()
+        all_values = report.loc[report[coluna_de_texto] != 'Total Geral', val_cols].to_numpy().flatten()
         all_values = all_values[~np.isnan(all_values) & (all_values > 0)]
 
         if all_values.size > 0:
@@ -291,7 +316,7 @@ if 'df_final' in locals() and not df_final.empty:
             return f"{x:.2f}%".replace(".", ",")
 
         def highlight_total_geral(row):
-            if row.name == 'Total Geral':
+            if row[coluna_de_texto] == 'Total Geral':
                 return ['background-color: #e0e0e0; color: #000000; font-weight: bold;'] * len(row)
             return [''] * len(row)
 
@@ -300,42 +325,27 @@ if 'df_final' in locals() and not df_final.empty:
             .set_table_attributes('class="dataframe" style="border-collapse: collapse; border-spacing: 0; width: 100%; font-family: Arial, sans-serif;"')
             .set_properties(**{"padding": "6px", "text-align": "right"})
             .set_table_styles([
-                # --- Estilos Originais (mantidos) ---
                 {"selector": "th, td", "props": [("border", "1px solid #999")]},
                 {"selector": "th", "props": [("background-color", "#163f3f"), ("color", "#FFFFFF"), ("text-align", "center")]},
                 {"selector": "caption", "props": [("caption-side", "bottom"), ("padding", "8px"), ("font-size", "1.1em"), ("color", "#0e5d5f")]},
                 {"selector": ".dataframe td.na", "props": [("background-color", "transparent"), ("color", "#000000")]},
-
-                # --- NOVOS ESTILOS PARA FIXAÇÃO ---
-                # 1. Fixa todo o cabeçalho (thead) no topo
                 {"selector": "thead th", "props": [("position", "sticky"), ("top", "0"), ("z-index", "1")]},
-
-                # 2. Estiliza e fixa a primeira coluna ('Nome do Ente Consignado') à esquerda
                 {"selector": "tbody td:first-child", "props": [
-                    ("position", "sticky"),
-                    ("left", "0"),
-                    ("background-color", "#ffffff"), 
-                    ("text-align", "left"),         
-                    ("font-weight", "bold"),
-                    # --- NOVAS PROPRIEDADES ---
-                    ("white-space", "nowrap"),      # Impede a quebra de linha
-                    ("overflow", "hidden"),         # Esconde o texto que transborda
-                    ("text-overflow", "ellipsis"),  # Adiciona "..." no final
-                    ("max-width", "30ch")           # Define a largura máxima
+                    ("position", "sticky"), ("left", "0"), ("background-color", "#ffffff"), 
+                    ("text-align", "left"), ("font-weight", "bold"), ("white-space", "nowrap"), 
+                    ("overflow", "hidden"), ("text-overflow", "ellipsis"), ("max-width", "30ch")
                 ]},
-
-                # 3. Garante que o canto superior esquerdo (cabeçalho da primeira coluna) fique fixo e sobreposto corretamente
                 {"selector": "thead th:first-child", "props": [("position", "sticky"), ("left", "0"), ("z-index", "2")]},
-
             ], overwrite=False)
-            .format({col: fmt_val for col in val_cols + ["Total"]} | {col: fmt_pct for col in pct_col})
+            # <<< ALTERAÇÃO: Formatação e gradiente para a nova coluna >>>
+            .format({col: fmt_val for col in val_cols + ["Total"]} | {col: fmt_pct for col in pct_cols})
             .background_gradient(cmap="RdYlGn_r", subset=val_cols, gmap=global_gmap, axis=None)
-            .background_gradient(cmap="Blues",  subset=pct_col,  axis=None)
-            .background_gradient(cmap="Greys", subset=["Total"], axis=None)
+            .background_gradient(cmap="Blues",    subset=pct_cols,   axis=None)
+            .background_gradient(cmap="Greys",    subset=["Total"],  axis=None)
             .applymap(
                 lambda v: 'background-color: transparent'
                 if (pd.isna(v) or v == 0) else '',
-                subset=val_cols + pct_col + ["Total"]
+                subset=val_cols + pct_cols + ["Total"]
             )
             .apply(highlight_total_geral, axis=1)
             .hide(axis="index")
@@ -349,8 +359,7 @@ if 'df_final' in locals() and not df_final.empty:
         """
         table_html = styler.to_html()
         
-        # Ocultado para brevidade, pois a lógica não muda
-        style_script_html = """"""
+        style_script_html = """""" # Ocultado para brevidade
 
         final_html = header_html + table_html + style_script_html
 
