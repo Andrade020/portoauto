@@ -11,8 +11,6 @@ import pandas as pd
 from glob import glob
 import numpy as np
 import matplotlib.pyplot as plt
-from datetime import datetime
-
 
 # Configurações de exibição do Pandas
 pd.options.display.max_columns = 100
@@ -163,7 +161,7 @@ print("Analisando sacados com tipo 'J'...")
 df_sacado_J = df_final2[df_final2['SAC_TIPO_PESSOA'] == 'J']
 if not df_sacado_J.empty:
     print("Tamanhos de 'SacadoCnpjCpf' para tipo 'J':", df_sacado_J['SacadoCnpjCpf'].map(len).unique())
-    print(df_sacado_J.sample(min(5, len(df_sacado_J))))
+    display(df_sacado_J.sample(min(5, len(df_sacado_J))))
     #! DISPLAY, NO JUPYTER
 else:
     print("Nenhum sacado do tipo 'J' encontrado.")
@@ -192,13 +190,10 @@ if not df_final2_cnpj.empty:
         print('*'*80)
 
     print("\nEstatísticas descritivas para dados numéricos de sacados com CNPJ:")
+    display(df_final2_cnpj.describe(include=[np.number]))
 
-    print(df_final2_cnpj.describe(include=[np.number]))
-    #! DISPLAY, NO JUPYTER
     print("\nSoma dos valores numéricos:")
-
-    print(df_final2_cnpj.select_dtypes(include=[np.number]).sum())
-    #! DISPLAY, NO JUPYTER
+    display(df_final2_cnpj.select_dtypes(include=[np.number]).sum())
 
     # Exportar para Excel
     # df_final2_cnpj.to_excel('df_final2_cnpj.xlsx')
@@ -254,8 +249,7 @@ for col in cat_cols:
     aux_['%PDD'] = (1 - aux_['_ValorLiquido'] / aux_['ValorPresente']) * 100
     if col == 'Convênio':
         aux_ = aux_.sort_values('ValorPresente', ascending=False)
-    print(aux_.head(20))
-    #! DISPLAY, NO JUPYTER
+    display(aux_.head(20))
     print("\n" + "="*80 + "\n")
 
 
@@ -277,8 +271,7 @@ for col in cat_cols:
         aux_ = aux_.sort_values('ValorPresente', ascending=False)
     else:
         aux_ = aux_.sort_values('%Vencido', ascending=False)
-    print(aux_.head(20))
-    #! DISPLAY, NO JUPYTER
+    display(aux_.head(20))
     print("\n" + "="*80 + "\n")
 
 
@@ -291,9 +284,8 @@ for col in cat_cols:
 print("Analisando sacados presentes em múltiplos convênios...")
 sacados_multi_entes = df_final2.groupby('SacadoCnpjCpf')['Convênio'].agg(['nunique', pd.unique])
 sacados_multi_entes = sacados_multi_entes.sort_values('nunique', ascending=False)
+display(sacados_multi_entes.head(35))
 
-print(sacados_multi_entes.head(35))
-#! DISPLAY, NO JUPYTER
 
 #%%
 # =============================================================================
@@ -324,24 +316,15 @@ print(f"Registros com Valor Presente > Valor Nominal: {check_v3}")
 
 
 #%%
-# =============================================================================
-# Bloco 15: Análise Focada de Métricas de Desempenho (PDD e Vencidos)
-# =============================================================================
-# Descrição: Este bloco executa uma análise direcionada das métricas de PDD
-# e Vencidos, segmentando os resultados por Cedente, Tipo de Contrato (TipoAtivo)
-# e Ente Consignado (Convênio), conforme solicitado.
-
-# *****************************************************************************
-# * BLOCO DE EXPORTAÇÃO (FINAL, COM AJUSTES FINAIS DE ESTILO)
-# *****************************************************************************
-import base64
+#==================================================
+# Bloco 15: Geração do relatório 
+#==================================================
+import pandas as pd
+import numpy as np
 import os
+from scipy.optimize import brentq # Usaremos o solver robusto 'brentq'
 
-print("\n" + "="*80)
-print("GERANDO RELATÓRIO HTML FINAL COM AJUSTES DE ESTILO")
-print("="*80)
-
-
+# ATUALIZADO: Substituído '_PopulacaoFaixa' pelas duas novas colunas
 cat_cols = [
     'Situacao', 'CedenteNome', 'SAC_TIPO_PESSOA', 'PagamentoParcial',
     'TipoAtivo', '_MuitosContratos', '_MuitosEntes', 'Convênio',
@@ -370,7 +353,191 @@ COST_DICT = {
 }
 DEFAULT_COST = COST_DICT.get('GOV. ALAGOAS', [0.035, 5.92])
 
+output_path = r'C:\Users\Leo\Desktop\Porto_Real\portoauto\src\fct_consig\metricas_tabelas'
+output_filename = os.path.join(output_path, 'analise_metricas_consolidadas.xlsx')
 
+os.makedirs(output_path, exist_ok=True)
+print(f"Arquivos de saída serão salvos em: {output_filename}")
+
+
+#***************************
+#*********** DADOS
+#****************************
+
+
+print("\n" + "="*80)
+print("INICIANDO PREPARAÇÃO E ENRIQUECIMENTO DOS DADOS")
+print("="*80)
+
+# Criar coluna p sacado BMP
+try:
+    mask_bmp = df_final2['SacadoCnpjCpf'] == '34.337.707/0001-00'
+    df_final2['_SacadoBMP'] = mask_bmp
+    print("Coluna '_SacadoBMP' criada com sucesso.")
+except KeyError:
+    print("[AVISO] Coluna 'SacadoCnpjCpf' não encontrada.")
+
+# Mapear Entes
+try:
+    path_map_entes = r'C:\Users\Leo\Desktop\Porto_Real\portoauto\src\fct_consig\MAP_ENTES.xlsx'
+    df_map_entes = pd.read_excel(path_map_entes)
+    map_nivel = dict(zip(df_map_entes['NOME'], df_map_entes['_NIVEL']))
+    map_prev = dict(zip(df_map_entes['NOME'], df_map_entes['_PREV']))
+    map_generic = dict(zip(df_map_entes['NOME'], df_map_entes['_GENERICO']))
+    df_final2['_NIVEL'] = df_final2['Convênio'].map(map_nivel)
+    df_final2['_PREV'] = df_final2['Convênio'].map(map_prev)
+    df_final2['_GENERICO'] = df_final2['Convênio'].map(map_generic)
+    print("Colunas de mapeamento de entes criadas com sucesso.")
+except Exception as e:
+    print(f"[AVISO] Falha ao processar o mapeamento de entes: {e}")
+# ADICIONE ESTA LINHA AQUI:
+print(f"[DIAGNÓSTICO] Valores únicos encontrados na coluna _NIVEL: {df_final2['_NIVEL'].unique()}")
+
+#****************
+#* funcao usada em montar quintis
+#***************
+def formatar_pop(n):
+    """vou formatar para notacao de engenharia"""
+    
+    # ===== CORREÇÃO ADICIONADA AQUI =====
+    # Se o valor de entrada for nulo ou NaN, retorna 'N/D' (Não Disponível)
+    if pd.isna(n):
+        return "N/D"
+    # ===== FIM DA CORREÇÃO =====
+    
+    n = float(n)
+    if n >= 1_000_000:
+        return f'{n / 1_000_000:.1f}M'.replace('.0M', 'M')
+    if n >= 1_000:
+        return f'{n / 1_000:.0f}k'
+    return str(int(n))
+
+# ==============================================================================
+# BLOCO DE ENRIQUECIMENTO UNIFICADO E CORRIGIDO
+# ==============================================================================
+print("\n" + "="*80)
+print("INICIANDO ENRIQUECimento DE DADOS (UF, CAPAG, POPULAÇÃO E QUINTIS SEPARADOS)")
+print("="*80)
+
+try:
+    # 1. LIMPEZA PARA RE-EXECUÇÃO (Idempotência)
+    # ATUALIZADO: Inclui as novas colunas a serem criadas
+    cols_a_criar = ['_UF', '_CAPAG', '_FaixaPop_Mun', '_FaixaPop_Est', 'Convênio_normalized', 'populacao']
+    cols_para_remover = [col for col in cols_a_criar if col in df_final2.columns]
+    if cols_para_remover:
+        print(f"[OBS] Removendo colunas de uma execução anterior: {cols_para_remover}")
+        df_final2 = df_final2.drop(columns=cols_para_remover)
+
+    # 2. CARREGAR E PREPARAR DADOS EXTERNOS
+    path_relacoes = r'C:\Users\Leo\Desktop\Porto_Real\portoauto\src\fct_consig\relacoes.csv'
+    df_relacoes = pd.read_csv(path_relacoes, sep=';')
+    print(f"Arquivo de relações '{path_relacoes}' carregado com sucesso.")
+    df_relacoes_unico = df_relacoes.sort_values('populacao', ascending=False).drop_duplicates(subset='Convênio', keep='first').copy()
+
+
+    # 3. ENRIQUECER df_final2 com UF, CAPAG e População
+    df_final2 = pd.merge(
+        df_final2,
+        df_relacoes_unico[['Convênio', 'UF', 'CAPAG', 'populacao']],
+        on='Convênio',
+        how='left'
+    )
+    df_final2['_UF'] = df_final2.pop('UF').fillna('Não Informado')
+    df_final2['_CAPAG'] = df_final2.pop('CAPAG').fillna('Não Informado')
+    print("Enriquecimento com UF, CAPAG e População concluído.")
+
+    # 4. CRIAR FAIXAS SEPARADAS PARA MUNICÍPIOS E ESTADOS
+    # Substitua a função inteira por esta versão corrigida:
+    def calcular_faixas_para_nivel(df_nivel, df_rel):
+        """
+        Calcula os quintis de VP e os labels de faixa populacional para um subset do DataFrame.
+        Recebe um DataFrame filtrado (só municípios ou só estados).
+        Retorna um dicionário mapeando cada convênio ao seu respectivo label de faixa.
+        """
+        if df_nivel.empty:
+            print(f"Nenhum dado encontrado para este nível. Pulando.")
+            return {}
+
+        vp_por_convenio = df_nivel.groupby('Convênio')['ValorPresente'].sum().sort_values()
+        if vp_por_convenio.sum() == 0: return {}
+
+        vp_cumulativo = vp_por_convenio.cumsum()
+        vp_total = vp_por_convenio.sum()
+
+        limites = [0] + [vp_total * q for q in [0.2, 0.4, 0.6, 0.8]] + [vp_total + 1]
+        
+        # ===== CORREÇÃO APLICADA AQUI =====
+        # A lógica agora é len(limites) - 1 para gerar o número correto de labels (5).
+        labels_base = [f'{chr(ord("A") + i)}' for i in range(len(limites) - 1)]
+        # ===== FIM DA CORREÇÃO =====
+
+        quintil_por_convenio = pd.cut(vp_cumulativo, bins=limites, labels=labels_base, include_lowest=True)
+
+        df_quintil_temp = quintil_por_convenio.reset_index(name='QuintilBase')
+        df_pop_e_quintil = pd.merge(df_quintil_temp, df_rel, on='Convênio', how='left').dropna(subset=['QuintilBase', 'populacao'])
+        
+        pop_ranges = df_pop_e_quintil.groupby('QuintilBase').agg(pop_min=('populacao', 'min'), pop_max=('populacao', 'max'))
+
+        mapa_label_final = {}
+        for quintil_base, row in pop_ranges.iterrows():
+            min_fmt = formatar_pop(row['pop_min'])
+            max_fmt = formatar_pop(row['pop_max'])
+            label_final = f"{quintil_base}. Pop: {min_fmt}" if min_fmt == max_fmt else f"{quintil_base}. Pop: {min_fmt} a {max_fmt}"
+            mapa_label_final[quintil_base] = label_final
+
+        return quintil_por_convenio.map(mapa_label_final).to_dict()
+
+    # Para estas, usando os nomes corretos que descobrimos:
+    df_municipais = df_final2[df_final2['_NIVEL'] == 'MUNICIPIO']
+    df_estaduais = df_final2[df_final2['_NIVEL'] == 'ESTADO']
+    
+    print("\n--- Processando Convênios Municipais ---")
+    mapa_municipais = calcular_faixas_para_nivel(df_municipais, df_relacoes_unico)
+    print("\n--- Processando Convênios Estaduais ---")
+    mapa_estaduais = calcular_faixas_para_nivel(df_estaduais, df_relacoes_unico)
+
+    df_final2['_FaixaPop_Mun'] = df_final2['Convênio'].map(mapa_municipais)
+    df_final2['_FaixaPop_Est'] = df_final2['Convênio'].map(mapa_estaduais)
+
+    print("\nCriação de faixas populacionais separadas concluída.")
+
+except FileNotFoundError:
+    print(f"[ERRO GRAVE] O arquivo de relações não foi encontrado em '{path_relacoes}'.")
+except Exception as e:
+    print(f"[ERRO] Falha inesperada durante o enriquecimento: {e}")
+
+# 5. ATUALIZAR O DICIONÁRIO DE ANÁLISE
+dimensoes_analise.update({
+    'CAPAG': '_CAPAG',
+    'Faixa Pop. Municipal': '_FaixaPop_Mun',
+    'Faixa Pop. Estadual': '_FaixaPop_Est',
+    'UF': '_UF'
+})
+print("\nDicionário 'dimensoes_analise' atualizado com as novas chaves separadas.")
+print("="*80)
+
+
+#******************
+#* TIR com brentq
+#*******************
+def calculate_xirr(cash_flows, days):
+    cash_flows = np.array(cash_flows)
+    days = np.array(days)
+    def npv(rate):
+        if rate <= -1: return float('inf')
+        with np.errstate(divide='ignore', over='ignore'):
+            return np.sum(cash_flows / (1 + rate) ** (days / 21.0))
+    try:
+        return brentq(npv, 0, 1.0)
+    except ValueError:
+        try:
+            return brentq(npv, -0.9999, 0)
+        except (RuntimeError, ValueError):
+            return np.nan
+
+#***********************
+#* CÁLCULO DAS MÉTRICAS
+#***********************
 print("\n" + "="*80)
 print("INICIANDO CÁLCULO DAS MÉTRICAS DE RISCO E INADIMPLÊNCIA")
 print("="*80)
@@ -398,10 +565,301 @@ for nome_analise, coluna in dimensoes_analise.items():
 
 print("Métricas de PDD e Inadimplência calculadas.")
 
+#***********************
+#* TICKET MÉDIO PONDERADO
+#***********************
+print("\n" + "="*80)
+print("INICIANDO CÁLCULO DO TICKET MÉDIO PONDERADO")
+print("="*80)
+
+tabelas_ticket = {}
+
+for nome_analise, coluna in dimensoes_analise.items():
+    if coluna not in df_final2.columns: continue
+    df_temp = df_final2.dropna(subset=[coluna, 'ValorPresente', 'ValorNominal'])
+    if df_temp.empty: continue
+    grouped = df_temp.groupby(coluna, observed=False)
+    numerador = grouped.apply(lambda g: (g['ValorNominal'] * g['ValorPresente']).sum(), include_groups=False)
+    denominador = grouped['ValorPresente'].sum()
+    ticket_ponderado = (numerador / denominador).replace([np.inf, -np.inf], 0)
+    ticket_ponderado.name = "Ticket Ponderado (R$)"
+    tabelas_ticket[nome_analise] = pd.DataFrame(ticket_ponderado)
+
+print("Cálculo de Ticket Médio Ponderado concluído.")
+
+#***********************
+#* TIR
+#***********************
+print("\n" + "="*80)
+print("INICIANDO CÁLCULO DA TAXA INTERNA DE RETORNO (TIR)")
+print("="*80)
+
+ref_date = df_final2['DataGeracao'].max()
+print(f"Data de Referência para o cálculo da TIR: {ref_date.strftime('%d/%m/%Y')}")
+
+try:
+    df_feriados = pd.read_excel(caminho_feriados)
+    holidays = pd.to_datetime(df_feriados['Data']).values.astype('datetime64[D]')
+    print(f"Sucesso: {len(holidays)} feriados carregados.")
+except Exception as e:
+    print(f"[AVISO] Não foi possível carregar feriados: {e}")
+    holidays = []
+
+df_avencer = df_final2[df_final2['DataVencimento'] > ref_date].copy()
+try:
+    start_dates = np.datetime64(ref_date.date())
+    end_dates = df_avencer['DataVencimento'].values.astype('datetime64[D]')
+    df_avencer.loc[:, '_DIAS_UTEIS_'] = np.busday_count(start_dates, end_dates, holidays=holidays)
+    df_avencer = df_avencer[df_avencer['_DIAS_UTEIS_'] > 0]
+except Exception as e:
+    print(f"[ERRO] Falha ao calcular dias úteis: {e}")
+    df_avencer.loc[:, '_DIAS_UTEIS_'] = np.nan
+
+df_avencer['CustoVariavel'] = df_avencer['Convênio'].map(lambda x: COST_DICT.get(x, DEFAULT_COST)[0])
+df_avencer['CustoFixo'] = df_avencer['Convênio'].map(lambda x: COST_DICT.get(x, DEFAULT_COST)[1])
+df_avencer['CustoTotal'] = df_avencer['CustoFixo'] + (df_avencer['CustoVariavel'] * df_avencer['ValorNominal'])
+df_avencer['ReceitaLiquida'] = df_avencer['ValorNominal'] - df_avencer['CustoTotal']
+
+all_tirs = []
+segmentos_para_analise = [('Carteira Total', 'Todos')] + \
+                         [(col, seg) for col in cat_cols if col in df_avencer.columns for seg in df_avencer[col].dropna().unique()]
+
+for tipo_dimensao, segmento in segmentos_para_analise:
+    df_segmento = df_avencer if tipo_dimensao == 'Carteira Total' else df_avencer[df_avencer[tipo_dimensao] == segmento]
+    if df_segmento.empty or df_segmento['_DIAS_UTEIS_'].isnull().all(): continue
+
+    vp_bruto = df_segmento['ValorPresente'].sum()
+    tir_bruta, tir_pdd, tir_custos, tir_completa = np.nan, np.nan, np.nan, np.nan
+    
+    if vp_bruto > 0:
+        pdd_rate = df_segmento['PDDTotal'].sum() / vp_bruto
+        
+        fluxos_brutos = df_segmento.groupby('_DIAS_UTEIS_', observed=False)['ValorNominal'].sum()
+        tir_bruta = calculate_xirr([-vp_bruto] + fluxos_brutos.values.tolist(), [0] + fluxos_brutos.index.tolist())
+
+        fluxos_pdd = (df_segmento['ValorNominal'] * (1 - pdd_rate)).groupby(df_segmento['_DIAS_UTEIS_']).sum()
+        tir_pdd = calculate_xirr([-vp_bruto] + fluxos_pdd.values.tolist(), [0] + fluxos_pdd.index.tolist())
+
+        fluxos_custos = df_segmento.groupby('_DIAS_UTEIS_', observed=False)['ReceitaLiquida'].sum()
+        tir_custos = calculate_xirr([-vp_bruto] + fluxos_custos.values.tolist(), [0] + fluxos_custos.index.tolist())
+        
+        df_segmento_copy = df_segmento.copy()
+        df_segmento_copy['FluxoCompleto'] = (df_segmento_copy['ValorNominal'] * (1 - df_segmento_copy['CustoVariavel'])) * (1 - pdd_rate) - df_segmento_copy['CustoFixo']
+        fluxos_completos = df_segmento_copy.groupby('_DIAS_UTEIS_', observed=False)['FluxoCompleto'].sum()
+        tir_completa = calculate_xirr([-vp_bruto] + fluxos_completos.values.tolist(), [0] + fluxos_completos.index.tolist())
+
+    all_tirs.append({
+        'DimensaoColuna': tipo_dimensao,
+        'Segmento': segmento,
+        'Valor Presente TIR (M)': vp_bruto / 1e6,
+        'TIR Bruta a.m. (%)': tir_bruta * 100 if pd.notna(tir_bruta) else np.nan,
+        'TIR Líquida (PDD) a.m. (%)': tir_pdd * 100 if pd.notna(tir_pdd) else np.nan,
+        'TIR Líquida (Custos) a.m. (%)': tir_custos * 100 if pd.notna(tir_custos) else np.nan,
+        'TIR Líquida (PDD & Custos) a.m. (%)': tir_completa * 100 if pd.notna(tir_completa) else np.nan,
+    })
+
+df_tir_summary = pd.DataFrame(all_tirs)
+tir_cols_to_fill = [col for col in df_tir_summary.columns if 'TIR' in col]
+df_tir_summary[tir_cols_to_fill] = df_tir_summary[tir_cols_to_fill].fillna(-100.0)
+print("Cálculo de TIR concluído.")
+
+#***********************
+#* EXPORTAÇÃO PARA EXCEL
+#***********************
+print("\n" + "="*80)
+print("UNIFICANDO MÉTRICAS E GERANDO ARQUIVO EXCEL")
+print("="*80)
+
+# ATUALIZADO: Incluídas as novas faixas para ordenação alfabética
+dimensoes_ordem_alfabetica = ['Faixa Pop. Municipal', 'Faixa Pop. Estadual', 'CAPAG']
+
+with pd.ExcelWriter(output_filename, engine='xlsxwriter') as writer:
+    for nome_analise, coluna in dimensoes_analise.items():
+        if coluna not in df_final2.columns or df_final2[coluna].isnull().all(): continue
+        
+        print(f"--> Processando e unificando dados para a categoria: '{nome_analise}'")
+        
+        df_pdd = tabelas_pdd.get(nome_analise)
+        df_venc = tabelas_vencido.get(nome_analise)
+        df_ticket = tabelas_ticket.get(nome_analise)
+        df_tir = df_tir_summary[df_tir_summary['DimensaoColuna'] == coluna].set_index('Segmento')
+
+        # Se a tabela de pdd (base) não foi gerada, pula para a próxima dimensão
+        if df_pdd is None:
+            print(f"    [AVISO] Sem dados para a dimensão '{nome_analise}'. Pulando.")
+            continue
+
+        df_final = df_pdd.join(df_venc.drop(columns=['ValorPresente (M)']), how='outer')
+        
+        if df_ticket is not None:
+            df_final = df_final.join(df_ticket, how='outer')
+
+        df_final = df_final.join(df_tir.drop(columns=['DimensaoColuna']), how='outer')
+        df_final.index.name = nome_analise
+        df_final.reset_index(inplace=True)
+        
+        df_final = df_final.drop(columns=['ValorVencido (M)', 'Valor Presente TIR (M)'], errors='ignore')
+
+        # ===== INÍCIO DA CORREÇÃO =====
+        # Cria a ordem das colunas de forma dinâmica, verificando se elas existem
+        
+        colunas_ordem = [nome_analise, 'ValorLiquido (M)', 'ValorPresente (M)']
+        
+        # Adiciona o Ticket Ponderado apenas SE ele foi calculado e existe em df_final
+        if 'Ticket Ponderado (R$)' in df_final.columns:
+            colunas_ordem.append('Ticket Ponderado (R$)')
+        
+        colunas_ordem.extend(['%PDD', '%Vencido'])
+        # ===== FIM DA CORREÇÃO =====
+
+        colunas_tir_existentes = [col for col in df_tir.columns if col in df_final.columns and 'TIR' in col]
+        colunas_finais = colunas_ordem + sorted(colunas_tir_existentes)
+        
+        outras_colunas = [col for col in df_final.columns if col not in colunas_finais]
+        
+        df_final = df_final[colunas_finais + outras_colunas]
+        
+        if nome_analise in dimensoes_ordem_alfabetica:
+            df_final = df_final.sort_values(nome_analise, ascending=True).reset_index(drop=True)
+        else:
+            df_final = df_final.sort_values('ValorPresente (M)', ascending=False).reset_index(drop=True)
+        
+        df_final.to_excel(writer, sheet_name=nome_analise, index=False)
+        
+print("\n" + "="*80)
+print("ANÁLISE CONCLUÍDA COM SUCESSO!")
+print(f"O arquivo consolidado foi salvo em: {output_filename}")
+print("="*80)
+
+
+#%% Exportar para HTML: 
+# *****************************************************************************
+# * BLOCO DE EXPORTAÇÃO (FINAL, COM AJUSTES FINAIS DE ESTILO)
+# *****************************************************************************
+
+
+
+#***********************
+#* CÁLCULO DAS MÉTRICAS
+#***********************
+print("\n" + "="*80)
+print("INICIANDO CÁLCULO DAS MÉTRICAS DE RISCO E INADIMPLÊNCIA")
+print("="*80)
+
+# --- NOVOS NOMES DAS COLUNAS ---
+vp_col_name = 'Valor Presente \n(R$ MM)'
+vl_col_name = 'Valor Líquido \n(R$ MM)'
+# -----------------------------
+
+tabelas_pdd = {}
+tabelas_vencido = {}
+
+# Risco: % PDD
+for nome_analise, coluna in dimensoes_analise.items():
+    if coluna not in df_final2.columns: continue
+    aux_pdd = df_final2.groupby(coluna, observed=False)[['_ValorLiquido', 'ValorPresente']].sum()
+    aux_pdd['%PDD'] = (1 - aux_pdd['_ValorLiquido'] / aux_pdd['ValorPresente']) * 100
+    # MODIFICADO AQUI: Renomeando para os novos nomes com quebra de linha
+    aux_pdd = aux_pdd.rename(columns={'ValorPresente': vp_col_name, '_ValorLiquido': vl_col_name})
+    aux_pdd[[vp_col_name, vl_col_name]] /= 1e6
+    tabelas_pdd[nome_analise] = aux_pdd
+
+# Inadimplencia --- #* % Vencido
+for nome_analise, coluna in dimensoes_analise.items():
+    if coluna not in df_final2.columns: continue
+    aux_venc = df_final2.groupby(coluna, observed=False)[['_ValorVencido', 'ValorPresente']].sum()
+    aux_venc['%Vencido'] = (aux_venc['_ValorVencido'] / aux_venc['ValorPresente']) * 100
+    # MODIFICADO AQUI: Renomeando para os novos nomes com quebra de linha
+    aux_venc = aux_venc.rename(columns={'ValorPresente': vp_col_name, '_ValorVencido': 'ValorVencido (M)'})
+    aux_venc[[vp_col_name, 'ValorVencido (M)']] /= 1e6
+    tabelas_vencido[nome_analise] = aux_venc
+
+print("Métricas de PDD e Inadimplência calculadas.")
+
+#***********************
+#* TIR
+#***********************
+print("\n" + "="*80)
+print("INICIANDO CÁLCULO DA TAXA INTERNA DE RETORNO (TIR)")
+print("="*80)
+
+ref_date = df_final2['DataGeracao'].max()
+print(f"Data de Referência para o cálculo da TIR: {ref_date.strftime('%d/%m/%Y')}")
+
+try:
+    df_feriados = pd.read_excel(caminho_feriados)
+    holidays = pd.to_datetime(df_feriados['Data']).values.astype('datetime64[D]')
+    print(f"Sucesso: {len(holidays)} feriados carregados.")
+except Exception as e:
+    print(f"[AVISO] Não foi possível carregar feriados: {e}")
+    holidays = []
+
+df_avencer = df_final2[df_final2['DataVencimento'] > ref_date].copy()
+try:
+    start_dates = np.datetime64(ref_date.date())
+    end_dates = df_avencer['DataVencimento'].values.astype('datetime64[D]')
+    df_avencer.loc[:, '_DIAS_UTEIS_'] = np.busday_count(start_dates, end_dates, holidays=holidays)
+    df_avencer = df_avencer[df_avencer['_DIAS_UTEIS_'] > 0]
+except Exception as e:
+    print(f"[ERRO] Falha ao calcular dias úteis: {e}")
+    df_avencer.loc[:, '_DIAS_UTEIS_'] = np.nan
+
+df_avencer['CustoVariavel'] = df_avencer['Convênio'].map(lambda x: COST_DICT.get(x, DEFAULT_COST)[0])
+df_avencer['CustoFixo'] = df_avencer['Convênio'].map(lambda x: COST_DICT.get(x, DEFAULT_COST)[1])
+df_avencer['CustoTotal'] = df_avencer['CustoFixo'] + (df_avencer['CustoVariavel'] * df_avencer['ValorNominal'])
+df_avencer['ReceitaLiquida'] = df_avencer['ValorNominal'] - df_avencer['CustoTotal']
+
+all_tirs = []
+segmentos_para_analise = [('Carteira Total', 'Todos')] + \
+                         [(col, seg) for col in cat_cols if col in df_avencer.columns for seg in df_avencer[col].dropna().unique()]
+
+for tipo_dimensao, segmento in segmentos_para_analise:
+    df_segmento = df_avencer if tipo_dimensao == 'Carteira Total' else df_avencer[df_avencer[tipo_dimensao] == segmento]
+    if df_segmento.empty or df_segmento['_DIAS_UTEIS_'].isnull().all(): continue
+
+    vp_bruto = df_segmento['ValorPresente'].sum()
+    tir_bruta, tir_pdd, tir_custos, tir_completa = np.nan, np.nan, np.nan, np.nan
+
+    if vp_bruto > 0:
+        pdd_rate = df_segmento['PDDTotal'].sum() / vp_bruto
+        fluxos_brutos = df_segmento.groupby('_DIAS_UTEIS_', observed=False)['ValorNominal'].sum()
+        tir_bruta = calculate_xirr([-vp_bruto] + fluxos_brutos.values.tolist(), [0] + fluxos_brutos.index.tolist())
+        fluxos_pdd = (df_segmento['ValorNominal'] * (1 - pdd_rate)).groupby(df_segmento['_DIAS_UTEIS_']).sum()
+        tir_pdd = calculate_xirr([-vp_bruto] + fluxos_pdd.values.tolist(), [0] + fluxos_pdd.index.tolist())
+        fluxos_custos = df_segmento.groupby('_DIAS_UTEIS_', observed=False)['ReceitaLiquida'].sum()
+        tir_custos = calculate_xirr([-vp_bruto] + fluxos_custos.values.tolist(), [0] + fluxos_custos.index.tolist())
+        df_segmento_copy = df_segmento.copy()
+        df_segmento_copy['FluxoCompleto'] = (df_segmento_copy['ValorNominal'] * (1 - df_segmento_copy['CustoVariavel'])) * (1 - pdd_rate) - df_segmento_copy['CustoFixo']
+        fluxos_completos = df_segmento_copy.groupby('_DIAS_UTEIS_', observed=False)['FluxoCompleto'].sum()
+        tir_completa = calculate_xirr([-vp_bruto] + fluxos_completos.values.tolist(), [0] + fluxos_completos.index.tolist())
+
+    # MODIFICADO AQUI: Usando os novos nomes para as colunas de TIR
+    all_tirs.append({
+        'DimensaoColuna': tipo_dimensao,
+        'Segmento': segmento,
+        'Valor Presente TIR (M)': vp_bruto / 1e6,
+        'TIR Bruta \n(% a.m. )': tir_bruta * 100 if pd.notna(tir_bruta) else np.nan,
+        'TIR Líquida de PDD \n(% a.m. )': tir_pdd * 100 if pd.notna(tir_pdd) else np.nan,
+        'TIR Líquida de custos \n(% a.m. )': tir_custos * 100 if pd.notna(tir_custos) else np.nan,
+        'TIR Líquida Final \n(% a.m. )': tir_completa * 100 if pd.notna(tir_completa) else np.nan,
+    })
+
+df_tir_summary = pd.DataFrame(all_tirs)
+tir_cols_to_fill = [col for col in df_tir_summary.columns if 'TIR' in col]
+df_tir_summary[tir_cols_to_fill] = df_tir_summary[tir_cols_to_fill].fillna(-100.0)
+print("Cálculo de TIR concluído.")
 
 
 
 
+
+#####################################################################################3
+import base64
+import os
+
+print("\n" + "="*80)
+print("GERANDO RELATÓRIO HTML FINAL COM AJUSTES DE ESTILO")
+print("="*80)
 
 # --- 1. PREPARAÇÃO DOS ATIVOS (LOGO E DATA) ---
 def encode_image_to_base64(image_path):
@@ -414,9 +872,6 @@ def encode_image_to_base64(image_path):
 
 logo_path = r'C:\Users\Leo\Desktop\Porto_Real\portoauto\images\logo_inv.png'
 logo_base64 = encode_image_to_base64(logo_path)
-### entrada manual da data: #######
-ref_date = datetime(2025, 7, 14)
-
 report_date = ref_date.strftime('%d/%m/%Y')
 
 # --- 2. DEFINIÇÃO DO CSS COMPLETO ---
@@ -594,4 +1049,3 @@ try:
     print("="*80)
 except Exception as e:
     print(f"\n[ERRO GRAVE] Não foi possível salvar o arquivo HTML: {e}")
-# %%

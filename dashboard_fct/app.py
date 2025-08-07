@@ -6,17 +6,15 @@ import os
 
 # --- Configurações da Aplicação ---
 app = Flask(__name__)
-app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0 # Desabilita o cache de arquivos estáticos durante o desenvolvimento
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
 
-# Define os caminhos para os arquivos de dados (relativos à pasta do projeto)
+# --- Definição dos Caminhos e Constantes ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, 'data_files')
-
 patt = os.path.join(DATA_DIR, 'fct_2025-07-14', '*Estoque*.csv')
 caminho_feriados = os.path.join(DATA_DIR, 'feriados_nacionais.xls')
 path_map_entes = os.path.join(DATA_DIR, 'MAP_ENTES.xlsx')
 path_relacoes = os.path.join(DATA_DIR, 'relacoes.csv')
-
 
 # --- Conteúdo do Relatório ---
 mapa_descricoes = {
@@ -37,31 +35,47 @@ mapa_descricoes = {
     'Faixa Pop. Estadual': 'Agrupa os convênios estaduais por faixas de população.',
     'UF': 'Agrega todas as métricas por Unidade Federativa (Estado).'
 }
-
 footer_main_text = """
-Esta dashboard tem como objetivo apresentar uma análise de desempenho do fundo FCT Consignado II (CNPJ 52.203.615/0001-19), realizada pelo Porto Real Investimentos na qualidade de cogestora. Os prestadores de serviço do fundo são: FICTOR ASSET (Gestor), Porto Real Investimentos (Cogestor), e VÓRTX DTVM (Administrador e Custodiante).
+Este documento tem como objetivo apresentar uma análise de desempenho do fundo FCT Consignado II (CNPJ 52.203.615/0001-19), realizada pelo Porto Real Investimentos na qualidade de cogestora. Os prestadores de serviço do fundo são: FICTOR ASSET (Gestor), Porto Real Investimentos (Cogestor), e VÓRTX DTVM (Administrador e Custodiante).
 """
 footer_disclaimer = """
-Disclaimer: Esta Dashboard foi preparada pelo Porto Real Asset Management exclusivamente para fins informativos e não constitui uma oferta de venda, solicitação de compra ou recomendação para qualquer investimento. As informações aqui contidas são baseadas em fontes consideradas confiáveis na data de sua publicação, mas não há garantia de sua precisão ou completude. Rentabilidade passada não representa garantia de rentabilidade futura.
+Disclaimer: Este relatório foi preparado pelo Porto Real Investimentos exclusivamente para fins informativos e não constitui uma oferta de venda, solicitação de compra ou recomendação para qualquer investimento. As informações aqui contidas são baseadas em fontes consideradas confiáveis na data de sua publicação, mas não há garantia de sua precisão ou completude. Rentabilidade passada não representa garantia de rentabilidade futura.
 """
+
+# --- PRÉ-PROCESSAMENTO DOS DADOS ---
+print("="*50)
+print("Iniciando a carga e processamento inicial dos dados do dashboard...")
+print("Isso pode levar alguns instantes...")
+
+# A função agora retorna 5 itens, incluindo os dicionários separados
+(
+    mapa_tabelas_binarias_global,
+    mapa_graficos_binarios_global,
+    mapa_tabelas_multi_global,
+    mapa_graficos_multi_global,
+    data_relatorio_global
+) = obter_dados_dashboard(
+    patt, caminho_feriados, path_map_entes, path_relacoes
+)
+
+print("Dados carregados e processados com sucesso. Servidor pronto.")
+print("="*50)
 
 
 # --- Rota Principal do Flask ---
 @app.route('/')
 def dashboard():
     """
-    Rota principal que carrega os dados, processa e renderiza o template.
+    Rota principal que renderiza o template com os dados já processados e agrupados.
     """
-    # Executa a análise completa para obter as tabelas HTML e a data
-    mapa_tabelas_html, data_relatorio = obter_dados_dashboard(
-        patt, caminho_feriados, path_map_entes, path_relacoes
-    )
-
-    # Renderiza o template, passando todas as variáveis necessárias
     return render_template(
         'index.html',
-        data_relatorio=data_relatorio.strftime('%d/%m/%Y'),
-        mapa_tabelas=mapa_tabelas_html,
+        data_relatorio=data_relatorio_global.strftime('%d/%m/%Y'),
+        # Passa os dicionários para os dois grupos
+        mapa_tabelas_binarias=mapa_tabelas_binarias_global,
+        mapa_graficos_binarios=mapa_graficos_binarios_global,
+        mapa_tabelas_multi=mapa_tabelas_multi_global,
+        mapa_graficos_multi=mapa_graficos_multi_global,
         mapa_descricoes=mapa_descricoes,
         footer_main_text=footer_main_text.strip(),
         footer_disclaimer=footer_disclaimer.strip()
@@ -69,5 +83,5 @@ def dashboard():
 
 
 if __name__ == '__main__':
-    # PORT 8001 pro meu WINDOWS
-    app.run(debug=True, port=8001)
+    # Inicia o servidor com o reloader desabilitado para evitar bugs no Windows.
+    app.run(debug=True, use_reloader=False, port=5001)
