@@ -1,188 +1,328 @@
+# -*- coding: utf-8 -*-
+"""
+carregar_dados_brutos.py
+-------------------------
+Script unificado para ler, padronizar e salvar em formato Parquet (bronze)
+os dados brutos baixados pelos scripts de download.
+
+Este script localiza a raiz do projeto (procurando pelo diretório .git)
+para construir os caminhos corretamente, não importando de onde ele é executado.
+
+Fontes tratadas:
+- CVM (Informes FIDC)
+- BCB (Séries Temporais SGS)
+- IBGE (PNAD, PMC, PMS, PIM, PIB dos Municípios)
+- Tesouro Nacional
+- CAGED
+- TSE (Perfil do Eleitorado)
+- INMET (Dados Climáticos)
+
+Uso:
+  # Apenas exibe amostras dos dados encontrados
+  python seu/caminho/para/carregar_dados_brutos.py
+
+  # Exibe amostras com 10 linhas e salva os arquivos Parquet
+  python seu/caminho/para/carregar_dados_brutos.py --rows 10 --save-parquet
+"""
+
 import os
-import requests
-import pandas as pd
-import zipfile
-import io
+import re
+import csv
+import argparse
+from glob import glob
 from datetime import datetime
-from dateutil.relativedelta import relativedelta
-from bcb import sgs
+import pandas as pd
 
-# --- CONFIGURAÇÃO INICIAL ---
-BASE_DIR = 'dados_fidc'
-print(f"Diretório base para salvar os dados: '{BASE_DIR}'")
+# ==============================================================================
+# 1. FUNÇÕES UTILITÁRIAS (incluindo a busca pela raiz do projeto)
+# ==============================================================================
 
-def criar_pastas():
-    os.makedirs(os.path.join(BASE_DIR, 'cvm', 'informes_mensais'), exist_ok=True)
-    os.makedirs(os.path.join(BASE_DIR, 'bcb', 'sgs'), exist_ok=True)
-    os.makedirs(os.path.join(BASE_DIR, 'ibge', 'pnad_continua'), exist_ok=True)
-    os.makedirs(os.path.join(BASE_DIR, 'tesouro_nacional', 'precos_taxas'), exist_ok=True)
-    print("Estrutura de pastas verificada/criada.")
-
-# --- 1. COMISSÃO DE VALORES MOBILIÁRIOS (CVM) ---
-def baixar_informes_mensais_fidc_cvm():
-    print("\n[CVM] Verificando informes mensais de FIDCs...")
-    unzip_dir = os.path.join(BASE_DIR, 'cvm', 'informes_mensais')
-    data_referencia = datetime.now() - relativedelta(months=1)
-    ano_mes = data_referencia.strftime('%Y%m')
-    arquivos_do_mes_existem = False
-    if os.path.exists(unzip_dir):
-        for filename in os.listdir(unzip_dir):
-            if ano_mes in filename and filename.endswith('.csv'):
-                arquivos_do_mes_existem = True
-                break
-    if arquivos_do_mes_existem:
-        print(f"[CVM] Os informes de {ano_mes} já foram baixados.")
-        return
-    nome_arquivo_zip = f"inf_mensal_fidc_{ano_mes}.zip"
-    url = f"https://dados.cvm.gov.br/dados/FIDC/DOC/INF_MENSAL/DADOS/{nome_arquivo_zip}"
-    print(f"[CVM] Tentando baixar informes para o mês de referência: {ano_mes}")
-    try:
-        response = requests.get(url, timeout=30)
-        response.raise_for_status()
-        print(f"[CVM] Download do arquivo '{nome_arquivo_zip}' concluído. Extraindo todos os arquivos CSV...")
-        with zipfile.ZipFile(io.BytesIO(response.content)) as zip_ref:
-            arquivos_extraidos = 0
-            for file_info in zip_ref.infolist():
-                if not file_info.is_dir() and file_info.filename.lower().endswith('.csv'):
-                    zip_ref.extract(file_info, path=unzip_dir)
-                    arquivos_extraidos += 1
-            if arquivos_extraidos > 0:
-                print(f"[CVM] Extração concluída. {arquivos_extraidos} arquivos CSV foram salvos em '{unzip_dir}'.")
-            else:
-                print("[CVM] AVISO: Nenhum arquivo CSV foi encontrado dentro do arquivo ZIP baixado.")
-    except requests.exceptions.HTTPError as e:
-        if e.response.status_code == 404:
-            print(f"[CVM] O informe de {ano_mes} ainda não está disponível no servidor da CVM.")
-        else:
-            print(f"[CVM] ERRO HTTP: {e}")
-    except Exception as e:
-        print(f"[CVM] ERRO inesperado ao processar arquivo da CVM: {e}")
-
-# --- 2. BANCO CENTRAL (BCB) ---
-def baixar_series_temporais_bcb():
-    print("\n[BCB] Verificando Séries Temporais (SGS)...")
-    series_diarias = {'selic': 11, 'cdi': 12}
-    series_outras = {'ipca': 433, 'inadimplencia_pj': 21082}
-    series_completas = {**series_diarias, **series_outras}
-    for nome, codigo in series_completas.items():
-        print(f"  -> Verificando série: {nome.upper()}")
-        arquivo_csv = os.path.join(BASE_DIR, 'bcb', 'sgs', f'{nome}.csv')
-        try:
-            if not os.path.exists(arquivo_csv):
-                print(f"     Arquivo '{nome}.csv' não encontrado. Realizando download histórico completo...")
-                df_final = pd.DataFrame()
-                if nome in series_diarias:
-                    print("     Série diária. Baixando em blocos para evitar limite da API...")
-                    dfs = []
-                    start_date = datetime(2000, 1, 1)
-                    while start_date < datetime.now():
-                        end_date = start_date + relativedelta(years=5) - relativedelta(days=1)
-                        if end_date > datetime.now(): end_date = datetime.now()
-                        print(f"       Baixando de {start_date.strftime('%Y-%m-%d')} a {end_date.strftime('%Y-%m-%d')}")
-                        df_chunk = sgs.get({nome: codigo}, start=start_date.strftime('%Y-%m-%d'), end=end_date.strftime('%Y-%m-%d'))
-                        if not df_chunk.empty: dfs.append(df_chunk)
-                        start_date += relativedelta(years=5)
-                    if dfs: df_final = pd.concat(dfs)
-                else:
-                    df_final = sgs.get({nome: codigo}, start='2000-01-01')
-                if not df_final.empty:
-                    df_final.reset_index(inplace=True)
-                    df_final.to_csv(arquivo_csv, index=False)
-                    print(f"     Arquivo '{nome}.csv' criado com {len(df_final)} registros.")
-            else:
-                df_local = pd.read_csv(arquivo_csv, parse_dates=['Date'])
-                last_date = df_local['Date'].max()
-                start_update = (last_date + pd.Timedelta(days=1)).strftime('%Y-%m-%d')
-                if datetime.strptime(start_update, '%Y-%m-%d').date() >= datetime.today().date():
-                    print(f"     '{nome.upper()}' já está atualizado.")
-                    continue
-                df_update = sgs.get({nome: codigo}, start=start_update)
-                if not df_update.empty:
-                    df_update.reset_index(inplace=True)
-                    df_update.to_csv(arquivo_csv, mode='a', header=False, index=False)
-                    print(f"     Novos {len(df_update)} registros adicionados a '{nome}.csv'.")
-                else:
-                    print(f"     Nenhum dado novo para '{nome.upper()}'.")
-        except Exception as e:
-            print(f"  -> ERRO ao baixar série '{nome.upper()}': {e}")
-
-# --- 3. IBGE (Instituto Brasileiro de Geografia e Estatística) ---
-def baixar_dados_pnad_ibge():
+def find_project_root(marker: str = '.git') -> str:
     """
-    CORREÇÃO 4: Adiciona 'errors='coerce'' para tornar a conversão de data robusta
-    a dados inválidos que possam vir da API.
+    Localiza a raiz do projeto subindo na árvore de diretórios a partir deste script.
+    A raiz é identificada pela presença de um marcador (padrão: diretório '.git').
     """
-    print("\n[IBGE] Verificando dados da PNAD Contínua (Taxa de Desocupação)...")
-    url_api = "https://apisidra.ibge.gov.br/values/t/4099/n1/1/v/4099/p/all"
-    arquivo_csv = os.path.join(BASE_DIR, 'ibge', 'pnad_continua', 'taxa_desocupacao.csv')
-    try:
-        response = requests.get(url_api, timeout=15)
-        response.raise_for_status()
-        dados_json = response.json()
-        if len(dados_json) <= 1:
-            print("[IBGE] API retornou dados vazios ou apenas cabeçalho.")
-            return
+    current_path = os.path.abspath(os.path.dirname(__file__))
+    while current_path != os.path.dirname(current_path): # Para de subir ao chegar na raiz do sistema
+        if os.path.isdir(os.path.join(current_path, marker)):
+            return current_path
+        current_path = os.path.dirname(current_path)
+    raise FileNotFoundError(f"Não foi possível encontrar a raiz do projeto (marcador '{marker}').")
 
-        df = pd.DataFrame(dados_json[1:])
-        df_clean = df[['D2N', 'V']].copy()
-        df_clean.rename(columns={'D2N': 'Mes', 'V': 'Taxa_Desocupacao'}, inplace=True)
-        df_clean['Taxa_Desocupacao'] = pd.to_numeric(df_clean['Taxa_Desocupacao'], errors='coerce')
-        
-        # CORREÇÃO: 'errors='coerce'' irá transformar qualquer 'Mes' inválido em NaT (Not a Time)
-        df_clean['Date'] = pd.to_datetime(df_clean['Mes'], format='%Y%m', errors='coerce')
-        
-        # Esta linha agora irá remover tanto linhas sem 'Taxa_Desocupacao' quanto linhas com data inválida
-        df_clean = df_clean[['Date', 'Mes', 'Taxa_Desocupacao']].dropna(subset=['Date', 'Taxa_Desocupacao'])
-        
-        if os.path.exists(arquivo_csv):
-            df_local = pd.read_csv(arquivo_csv, parse_dates=['Date'])
-            df_novo = df_clean[~df_clean['Date'].isin(df_local['Date'])]
-            if not df_novo.empty:
-                df_novo.to_csv(arquivo_csv, mode='a', header=False, index=False)
-                print(f"     Novos {len(df_novo)} registros adicionados à PNAD.")
-            else:
-                print("     Dados da PNAD já estão atualizados.")
-        else:
-            df_clean.to_csv(arquivo_csv, index=False)
-            print(f"     Arquivo da PNAD criado com {len(df_clean)} registros.")
-    except requests.RequestException as e:
-        print(f"[IBGE] ERRO: Falha ao baixar dados da PNAD. {e}")
+def print_section(title: str):
+    """Imprime um título de seção formatado."""
+    print(f"\n{'=' * (len(title) + 4)}")
+    print(f"| {title} |")
+    print(f"{'=' * (len(title) + 4)}")
+
+def print_sub(title: str):
+    """Imprime um subtítulo formatado."""
+    print(f"\n-- {title}")
+
+def sanitize_number_pt(series: pd.Series) -> pd.Series:
+    """Converte uma série textual (com vírgula decimal) para numérica."""
+    if series is None:
+        return None
+    s = series.astype(str).str.strip()
+    s = s.replace({"": None, "-": None, "–": None, "—": None, "...": None})
+    s = s.str.replace(".", "", regex=False)  # Remove separador de milhar
+    s = s.str.replace(",", ".", regex=False)  # Troca vírgula decimal por ponto
+    return pd.to_numeric(s, errors="coerce")
+
+def read_smart(path: str, nrows: int = None, **kwargs) -> pd.DataFrame | None:
+    """
+    Lê um arquivo tabular (CSV, TXT, XLSX, ODS) de forma inteligente.
+    Retorna um DataFrame ou None em caso de erro.
+    """
+    if not os.path.exists(path):
+        print("    -> ERRO: Arquivo não encontrado.")
+        return None
+
+    ext = os.path.splitext(path)[1].lower()
+    try:
+        if ext in [".csv", ".txt"]:
+            # Detecta delimitador e encoding para CSVs
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                sample = f.read(4096)
+                try:
+                    dialect = csv.Sniffer().sniff(sample, delimiters=";,|\t")
+                    sep = dialect.delimiter
+                except csv.Error:
+                    sep = kwargs.get("sep", ";") # Fallback
+            
+            enc = kwargs.get("encoding", "latin-1" if "tse" in path else "utf-8")
+            return pd.read_csv(path, sep=sep, encoding=enc, on_bad_lines="warn", dtype=object, nrows=nrows)
+
+        elif ext in [".xlsx", ".xls", ".ods"]:
+            engine = "odf" if ext == ".ods" else None
+            return pd.read_excel(path, engine=engine, nrows=nrows, dtype=object)
+
     except Exception as e:
-        print(f"[IBGE] ERRO: Falha ao processar dados da PNAD. {e}")
+        print(f"    -> ERRO ao ler o arquivo: {e}")
+        return None
+    return None
 
+# ==============================================================================
+# 2. CONFIGURAÇÃO DE CAMINHOS
+# ==============================================================================
 
-# --- 4. TESOURO NACIONAL ---
-def baixar_dados_tesouro_direto():
-    print("\n[Tesouro] Verificando preços e taxas dos títulos públicos...")
-    url = "https://www.tesourotransparente.gov.br/ckan/dataset/df56aa42-484a-4a59-8184-7676580c81e3/resource/796d2059-14e9-44e3-80c9-2d9e30b405c1/download/PrecosTaxasTesouroDireto.csv"
-    local_csv_path = os.path.join(BASE_DIR, 'tesouro_nacional', 'precos_taxas', 'tesouro_direto_historico.csv')
-    try:
-        response_head = requests.head(url, timeout=10)
-        response_head.raise_for_status()
-        remote_last_modified_str = response_head.headers.get('Last-Modified')
-        if remote_last_modified_str:
-            remote_last_modified = datetime.strptime(remote_last_modified_str, '%a, %d %b %Y %H:%M:%S %Z')
-            if os.path.exists(local_csv_path):
-                local_last_modified_ts = os.path.getmtime(local_csv_path)
-                if remote_last_modified.timestamp() <= local_last_modified_ts:
-                    print("[Tesouro] Os dados do Tesouro Direto já estão atualizados.")
-                    return
-        print("[Tesouro] Nova versão dos dados do Tesouro encontrada. Baixando...")
-        df = pd.read_csv(url, sep=';', decimal=',', encoding='latin-1')
-        df.to_csv(local_csv_path, index=False)
-        print(f"[Tesouro] Dados salvos em '{local_csv_path}'.")
-    except requests.RequestException as e:
-        print(f"[Tesouro] ERRO: {e}")
+# Localiza a raiz do projeto e constrói os caminhos a partir dela
+try:
+    PROJECT_ROOT = find_project_root()
+    print(f"Raiz do projeto encontrada em: {PROJECT_ROOT}")
 
-def exibir_notas_fontes_manuais():
-    print("\n" + "="*50 + "\nNOTAS IMPORTANTES SOBRE OUTRAS FONTES DE DADOS\n" + "="*50)
-    print("[CVM] Regulamentos: Ação manual | [BCB] REF: Ação manual | [B3/ANBIMA]: Acesso pago/manual")
+    # Diretórios de dados brutos (raw)
+    DIR_MACRO = os.path.join(PROJECT_ROOT, "data_raw", "dados_macro")
+    DIR_MACRO_ADICIONAIS = os.path.join(PROJECT_ROOT, "data_raw", "dados_macro_adicionais")
+
+    # Diretório de saída para os dados processados (camada bronze)
+    BRONZE_DIR = os.path.join(PROJECT_ROOT, "data_processed", "bronze")
+    os.makedirs(BRONZE_DIR, exist_ok=True)
+
+except FileNotFoundError as e:
+    print(f"ERRO CRÍTICO: {e}")
+    print("Certifique-se de que o script está dentro de um repositório git ou ajuste o marcador.")
+    exit(1) # Encerra o script se não encontrar a raiz
+
+# ==============================================================================
+# 3. MÓDULOS DE CARREGAMENTO E PADRONIZAÇÃO
+# ==============================================================================
+# As funções load_* (load_cvm, load_bcb, etc.) permanecem as mesmas
+# e foram omitidas aqui para abreviar. Cole-as do script anterior.
+
+def load_cvm(path: str, preview_rows: int) -> pd.DataFrame | None:
+    """Carrega e padroniza dados da CVM."""
+    print_sub(f"Fonte: CVM - Informes FIDC ({os.path.basename(path)})")
+    # A CVM costuma usar latin-1. O zip pode conter múltiplos CSVs, vamos pegar o maior.
+    if path.endswith('.zip'):
+        import zipfile
+        with zipfile.ZipFile(path, 'r') as z:
+            # Encontra o maior arquivo CSV dentro do ZIP
+            csv_files = [f for f in z.infolist() if f.filename.lower().endswith('.csv')]
+            if not csv_files:
+                print("    -> ERRO: Nenhum arquivo CSV encontrado no ZIP da CVM.")
+                return None
+            target_file = max(csv_files, key=lambda f: f.file_size)
+            print(f"    -> Lendo '{target_file.filename}' de dentro do ZIP.")
+            with z.open(target_file.filename) as f:
+                df = pd.read_csv(f, sep=';', encoding='latin-1', on_bad_lines='warn', dtype=object)
+    else: # Fallback se não for zip
+        df = read_smart(path, encoding="latin-1")
+
+    if df is None: return None
+    
+    # Padronização de datas e valores
+    if "DT_COMPTC" in df.columns:
+        df["DT_COMPTC"] = pd.to_datetime(df["DT_COMPTC"], errors="coerce")
+    for col in df.columns:
+        if col.startswith("VL_") or col.startswith("VR_"):
+            df[f"{col}_numeric"] = sanitize_number_pt(df[col])
+            
+    print(df.head(preview_rows))
+    return df
+
+def load_bcb(path: str, preview_rows: int) -> pd.DataFrame | None:
+    """Carrega e padroniza dados do BCB."""
+    print_sub(f"Fonte: BCB - SGS ({os.path.basename(path)})")
+    df = read_smart(path, sep=",")
+    if df is None: return None
+    
+    # Padronização de datas e valores
+    if "Date" in df.columns:
+        df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+    if len(df.columns) > 1:
+        value_col = df.columns[1] # A segunda coluna é geralmente o valor
+        df[value_col] = pd.to_numeric(df[value_col], errors="coerce")
+    
+    print(df.head(preview_rows))
+    return df
+
+def load_ibge_pnad(path: str, preview_rows: int) -> pd.DataFrame | None:
+    """Carrega e padroniza dados da PNAD Contínua."""
+    print_sub(f"Fonte: IBGE - PNAD Contínua ({os.path.basename(path)})")
+    df = read_smart(path, sep=",")
+    if df is None: return None
+
+    # Padronização de datas e valores
+    if "Date" in df.columns:
+        df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+    if "Taxa_Desocupacao" in df.columns:
+        df["Taxa_Desocupacao"] = pd.to_numeric(df["Taxa_Desocupacao"], errors="coerce")
+
+    print(df.head(preview_rows))
+    return df
+    
+def load_tesouro(path: str, preview_rows: int) -> pd.DataFrame | None:
+    """Carrega e padroniza dados do Tesouro Nacional."""
+    print_sub(f"Fonte: Tesouro Nacional ({os.path.basename(path)})")
+    df = read_smart(path, sep=",") # O arquivo original é ';', mas o downloader salva como ','
+    if df is None:
+        # Tenta com ';' como fallback
+        df = read_smart(path, sep=";")
+        if df is None: return None
+
+    # Padronização de datas e valores
+    date_cols = [col for col in df.columns if 'Data' in col]
+    for col in date_cols:
+         df[col] = pd.to_datetime(df[col], format="%d/%m/%Y", errors="coerce")
+
+    numeric_cols = ["Taxa Compra Manha", "PU Compra Manha", "PU Venda Manha"]
+    for col in numeric_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col].str.replace(',', '.'), errors="coerce")
+
+    print(df.head(preview_rows))
+    return df
+
+def load_ibge_pesquisas_mensais(path: str, preview_rows: int) -> pd.DataFrame | None:
+    """Carrega dados das pesquisas mensais do IBGE (PMC, PMS, PIM)."""
+    print_sub(f"Fonte: IBGE - Pesquisas Mensais ({os.path.basename(path)})")
+    df = read_smart(path, sep=",")
+    if df is None: return None
+
+    # Padronização
+    if "periodo" in df.columns:
+        df["periodo_dt"] = pd.to_datetime(df["periodo"], format="%Y%m", errors="coerce")
+    if "valor" in df.columns:
+        df["valor_numeric"] = sanitize_number_pt(df["valor"])
+
+    print(df.head(preview_rows))
+    return df
+
+def load_caged(path: str, preview_rows: int) -> pd.DataFrame | None:
+    """Carrega e padroniza dados do CAGED."""
+    print_sub(f"Fonte: CAGED ({os.path.basename(path)})")
+    df = read_smart(path, encoding="latin-1")
+    if df is None: return None
+
+    # Padronização
+    if "competênciamov" in df.columns:
+        df["competencia_dt"] = pd.to_datetime(df["competênciamov"], format="%Y%m", errors="coerce")
+    if "salário" in df.columns:
+        df["salario_numeric"] = sanitize_number_pt(df["salário"])
+
+    print(df.head(preview_rows))
+    return df
+
+def load_inmet(path: str, preview_rows: int) -> pd.DataFrame | None:
+    """Carrega e padroniza dados do INMET."""
+    print_sub(f"Fonte: INMET ({os.path.basename(path)})")
+    df = read_smart(path)
+    if df is None: return None
+
+    # Padronização
+    if "DATA (YYYY-MM-DD)" in df.columns and "HORA (UTC)" in df.columns:
+        # Tenta combinar data e hora, lidando com formatos "HHMM" ou "HH:MM"
+        hora_utc = df["HORA (UTC)"].astype(str).str.replace(" UTC", "").str.strip()
+        hora_formatada = hora_utc.str.slice(0, 2) + ":" + hora_utc.str.slice(2, 4)
+        df["timestamp_utc"] = pd.to_datetime(
+            df["DATA (YYYY-MM-DD)"] + " " + hora_formatada,
+            errors="coerce"
+        )
+    for col in df.columns:
+        # Heurística para converter colunas numéricas
+        if df[col].dtype == 'object' and df[col].str.contains(r"^\d+,\d+", na=False).any():
+             df[f"{col}_numeric"] = sanitize_number_pt(df[col])
+
+    print(df.head(preview_rows))
+    return df
+
+def load_generic_sample(path: str, source_name: str, preview_rows: int):
+    """Carrega apenas uma amostra de arquivos complexos (PIB, TSE)."""
+    print_sub(f"Fonte: {source_name} ({os.path.basename(path)}) - Amostra")
+    df = read_smart(path, nrows=preview_rows)
+    if df is not None:
+        print(df.head(preview_rows))
+# ==============================================================================
+# 4. EXECUÇÃO PRINCIPAL
+# ==============================================================================
+
+def main():
+    """Função principal para orquestrar a leitura e salvamento dos dados."""
+    parser = argparse.ArgumentParser(description="Script para carregar e padronizar dados brutos a partir da raiz do projeto.")
+    parser.add_argument("--rows", type=int, default=5, help="Número de linhas para exibir nas amostras.")
+    parser.add_argument("--save-parquet", action="store_true", help="Salva os DataFrames padronizados em formato Parquet.")
+    args = parser.parse_args()
+
+    tarefas = {
+        "cvm_fidc": (load_cvm, os.path.join(DIR_MACRO, "cvm", "informes_mensais", "inf_mensal_fidc_*.csv")),
+        "bcb_selic": (load_bcb, os.path.join(DIR_MACRO, "bcb", "sgs", "selic.csv")),
+        "bcb_cdi": (load_bcb, os.path.join(DIR_MACRO, "bcb", "sgs", "cdi.csv")),
+        "bcb_ipca": (load_bcb, os.path.join(DIR_MACRO, "bcb", "sgs", "ipca.csv")),
+        "ibge_pnad": (load_ibge_pnad, os.path.join(DIR_MACRO, "ibge", "pnad_continua", "taxa_desocupacao.csv")),
+        "tesouro_direto": (load_tesouro, os.path.join(DIR_MACRO, "tesouro_nacional", "precos_taxas", "tesouro_direto_historico.csv")),
+        "ibge_pmc": (load_ibge_pesquisas_mensais, os.path.join(DIR_MACRO_ADICIONAIS, "ibge", "pesquisas_mensais", "pmc_volume_vendas.csv")),
+        "ibge_pms": (load_ibge_pesquisas_mensais, os.path.join(DIR_MACRO_ADICIONAIS, "ibge", "pesquisas_mensais", "pms_receita_servicos.csv")),
+        "ibge_pim": (load_ibge_pesquisas_mensais, os.path.join(DIR_MACRO_ADICIONAIS, "ibge", "pesquisas_mensais", "pim_producao_industrial.csv")),
+        "caged": (load_caged, os.path.join(DIR_MACRO_ADICIONAIS, "trabalho", "caged", "CAGEDMOV*.txt")),
+        "inmet_A904": (load_inmet, os.path.join(DIR_MACRO_ADICIONAIS, "inmet", "clima", "estacao_A904.csv")),
+        "ibge_pib_municipios": (load_generic_sample, os.path.join(DIR_MACRO_ADICIONAIS, "ibge", "contas_regionais", "*.*")),
+        "tse_eleitorado": (load_generic_sample, os.path.join(DIR_MACRO_ADICIONAIS, "tse", "eleitorado", "*.csv")),
+    }
+
+    print_section("INICIANDO CARREGAMENTO E PADRONIZAÇÃO DE DADOS BRUTOS")
+    
+    for nome, (loader, path_pattern) in tarefas.items():
+        files = glob(path_pattern)
+        if not files:
+            print(f"\n-- AVISO: Nenhum arquivo encontrado para '{nome}' com o padrão '{path_pattern}'")
+            continue
+        
+        path = max(files, key=os.path.getmtime)
+        
+        if loader == load_generic_sample:
+            loader(path, nome.upper(), args.rows)
+        else:
+            df = loader(path, args.rows)
+            if args.save_parquet and df is not None and not df.empty:
+                output_path = os.path.join(BRONZE_DIR, f"{nome}.parquet")
+                try:
+                    df.to_parquet(output_path, index=False)
+                    print(f"    -> [SALVO] Arquivo Parquet salvo em: {output_path}")
+                except Exception as e:
+                    print(f"    -> ERRO ao salvar Parquet: {e}")
+
+    print_section("PROCESSAMENTO CONCLUÍDO")
 
 if __name__ == "__main__":
-    criar_pastas()
-    baixar_informes_mensais_fidc_cvm()
-    baixar_series_temporais_bcb()
-    baixar_dados_pnad_ibge()
-    baixar_dados_tesouro_direto()
-    exibir_notas_fontes_manuais()
-    print("\nRotina de download concluída.")
+    main()
