@@ -149,6 +149,7 @@ def chamar_downloads_ibge_mensal():
 # 2) IBGE – PIB dos Municípios (descoberta dinâmica em /Pib_Municipios/<ANO>/base/)
 # ======================================================================
 
+
 def _is_year_dir(name):
     # aceita "2021/" ou "2010_2021/"
     n = name.strip('/').lower()
