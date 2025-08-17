@@ -1,5 +1,5 @@
 [project]
-name = "portoauto_data"
+name = "macro_downloader"
 version = "0.1.0"
 description = "Pacote para carregar dados macroeconômicos para o projeto Porto Real."
 dependencies = [
