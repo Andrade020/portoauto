@@ -3,6 +3,6 @@ from typing import List
 from .utils import read_smart
 
 def sample_tse(paths: List[str]) -> pd.DataFrame | None:
-    """Carrega uma amostra do maior arquivo do TSE."""
+    """Carrega uma amostra do maior arquivo do TSE (deve ser o mais completo)"""
     if not paths: return None
     return read_smart(paths[0])

@@ -4,10 +4,8 @@ import csv
 import pandas as pd
 from typing import List
 
-# --- Funções de busca de caminhos ---
 def find_project_root(marker: str = '.git') -> str:
-    """Localiza a raiz do projeto subindo na árvore de diretórios."""
-    # Começa 3 níveis acima, pois este arquivo está em src/macro_downloader/loaders
+    """loclz a raiz do prjto subndo na arvre de dirtrs."""
     current_path = os.path.abspath(os.path.join(__file__, "..", "..", ".."))
     while current_path != os.path.dirname(current_path):
         if os.path.isdir(os.path.join(current_path, marker)):
@@ -19,16 +17,15 @@ PROJECT_ROOT = find_project_root()
 DIR_MACRO = os.path.join(PROJECT_ROOT, "data_raw", "dados_macro")
 DIR_MACRO_ADICIONAIS = os.path.join(PROJECT_ROOT, "data_raw", "dados_macro_adicionais")
 
-# --- Funções de leitura e tratamento de dados ---
 def sanitize_number_pt(series: pd.Series) -> pd.Series:
-    """Converte uma série textual (com vírgula decimal) para numérica."""
+    """convrt uma sehre textl (com virgla decml) para numhrc."""
     if not isinstance(series, pd.Series): return series
     s = series.astype(str).str.strip().replace({"": None, "-": None, "–": None, "—": None, "...": None})
     s = s.str.replace(".", "", regex=False).str.replace(",", ".", regex=False)
     return pd.to_numeric(s, errors="coerce")
 
 def read_smart(path: str, **kwargs) -> pd.DataFrame | None:
-    """Lê um arquivo tabular (CSV, TXT, XLSX, ODS) de forma inteligente."""
+    """le um arqvo tablr (csv, txt, xlsx, ods) de forma intlgn."""
     if not os.path.exists(path): return None
     ext = os.path.splitext(path)[1].lower()
     try:

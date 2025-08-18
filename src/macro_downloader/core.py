@@ -20,6 +20,8 @@ DATA_SOURCES = {
     "ibge_pim": (ibge.load_pesquisas_mensais, os.path.join(utils.DIR_MACRO_ADICIONAIS, "ibge", "pesquisas_mensais", "pim_producao_industrial.csv"), 'single'),
     "inmet_sorriso": (inmet.load_inmet, os.path.join(utils.DIR_MACRO_ADICIONAIS, "inmet", "clima", "estacao_A904.csv"), 'single'),
 }
+"""origens dos dados"""
+
 
 def _find_files(pattern: str, strategy: str):
     files = glob(pattern)

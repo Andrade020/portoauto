@@ -23,6 +23,6 @@ def load_pesquisas_mensais(paths: List[str]) -> pd.DataFrame | None:
     return df
 
 def sample_pib_municipios(paths: List[str]) -> pd.DataFrame | None:
-    """Carrega apenas uma amostra do arquivo de PIB mais recente."""
+    """Carrega só o arquivo de PIB mais recente."""
     if not paths: return None
     return read_smart(paths[0])

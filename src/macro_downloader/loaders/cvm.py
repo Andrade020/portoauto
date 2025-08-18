@@ -3,7 +3,7 @@ from typing import List
 from .utils import read_smart, sanitize_number_pt
 
 def load_cvm(paths: List[str]) -> pd.DataFrame | None:
-    """Carrega e une múltiplos arquivos CSV da CVM para um dado período."""
+    """Carrega arquivos CSV da CVM para um dado período."""
     if not paths: return None
     all_dfs = [df for path in paths if (df := read_smart(path, encoding="latin-1", sep=';')) is not None]
     if not all_dfs: return None

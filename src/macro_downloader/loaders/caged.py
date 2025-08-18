@@ -3,7 +3,7 @@ from typing import List
 from .utils import read_smart, sanitize_number_pt
 
 def load_caged(paths: List[str]) -> pd.DataFrame | None:
-    """Carrega o arquivo de dados mais recente do CAGED."""
+    """carrga o arqvo de dads mais recnte do cagd."""
     if not paths: return None
     df = read_smart(paths[0], encoding="latin-1")
     if df is None: return None

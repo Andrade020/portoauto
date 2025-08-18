@@ -1,14 +1,10 @@
 # -*- coding: utf-8 -*-
-"""
-=================================================================
-SCRIPT UNIFICADO PARA DOWNLOAD DE DADOS DE FIDC E DADOS ADICIONAIS
-=================================================================
 
-Versão final e corrigida, com lógica robusta para todas as fontes de dados.
-Otimizado para execução diária e atualização incremental dos dados.
+"""
+essa versao eh uma melhoria da anterior (macro_downloader), com correções e otimizacoes, 
+reduzi gradualmente várias linhas e acabei simplificando a lógica de download.
 """
 
-# --- IMPORTAÇÕES COMBINADAS ---
 import os
 import re
 import io
@@ -23,18 +19,13 @@ import py7zr
 from ftplib import FTP
 from bs4 import BeautifulSoup
 
-# ======================================================================
-# --- CONFIGURAÇÃO DE EXECUÇÃO ---
-# ======================================================================
 DADOS_A_BAIXAR = [
     'cvm', 'bcb', 'ibge_pnad', 'tesouro',
     'ibge_mensal', 'ibge_pib', 'caged', 'tse', 'inmet'
 ]
 DADOS_A_BAIXAR = set(DADOS_A_BAIXAR)
 
-# ======================================================================
-# --- CONFIGURAÇÃO DE CAMINHOS (ROBUSTO) ---
-# ======================================================================
+# paths
 
 def find_project_root(marker: str = '.git') -> str:
     current_path = os.path.abspath(os.path.dirname(__file__))
@@ -44,19 +35,16 @@ def find_project_root(marker: str = '.git') -> str:
         current_path = os.path.dirname(current_path)
     raise FileNotFoundError(f"Não foi possível encontrar a raiz do projeto (marcador '{marker}').")
 
-try:
-    PROJECT_ROOT = find_project_root()
-    print(f"Raiz do projeto encontrada: {PROJECT_ROOT}")
-    BASE_DIR = os.path.join(PROJECT_ROOT, 'data_raw', 'dados_macro')
-    BASE_DIR_ADICIONAIS = os.path.join(PROJECT_ROOT, 'data_raw', 'dados_macro_adicionais')
-except FileNotFoundError as e:
-    print(f"ERRO CRÍTICO: {e}. Execute este script de dentro de um repositório git.")
-    exit(1)
+
+PROJECT_ROOT = find_project_root()
+print(f"Raiz do projeto encontrada: {PROJECT_ROOT}")
+BASE_DIR = os.path.join(PROJECT_ROOT, 'data_raw', 'dados_macro')
+BASE_DIR_ADICIONAIS = os.path.join(PROJECT_ROOT, 'data_raw', 'dados_macro_adicionais')
+
 
 # ======================================================================
-# --- FUNÇÕES DE DOWNLOAD (BLOCO 1) ---
-# ======================================================================
-# (As funções deste bloco já estão corretas e foram omitidas para abreviar)
+# 1A PARTE: dados principais exigidos pela empresa
+
 def criar_pastas_principais():
     print(f"Diretório base para dados primários: '{BASE_DIR}'")
     os.makedirs(os.path.join(BASE_DIR, 'cvm', 'informes_mensais'), exist_ok=True)
@@ -197,9 +185,7 @@ def baixar_dados_tesouro_direto():
         print(f"[Tesouro] ERRO: {e}")
 
 # ======================================================================
-# --- FUNÇÕES DE DOWNLOAD (BLOCO 2) ---
-# ======================================================================
-
+# 2A PARTE: dados adicionais que pensei
 def criar_pastas_adicionais():
     print(f"\nDiretório base para dados adicionais: '{BASE_DIR_ADICIONAIS}'")
     os.makedirs(os.path.join(BASE_DIR_ADICIONAIS, 'ibge', 'pesquisas_mensais'), exist_ok=True)
@@ -364,7 +350,6 @@ def baixar_novo_caged():
                 if os.path.exists(local_7z_path):
                     os.remove(local_7z_path)
 
-
 def baixar_perfil_eleitorado_tse():
     print("\n[TSE] Verificando Perfil do Eleitorado...")
     url = "https://cdn.tse.jus.br/estatistica/sead/odsele/perfil_eleitorado/perfil_eleitorado_ATUAL.zip"
@@ -433,9 +418,7 @@ def baixar_dados_climaticos_inmet():
         except Exception as e:
             print(f"     ERRO ao processar INMET para o ano {ano}: {e}")
 
-# ======================================================================
-# --- ROTINA PRINCIPAL ---
-# ======================================================================
+# main >>>>>>>>>>>>>>>>>>>>>
 if __name__ == "__main__":
     TAREFAS_BLOCO_1 = {'cvm', 'bcb', 'ibge_pnad', 'tesouro'}
     TAREFAS_BLOCO_2 = {'ibge_mensal', 'ibge_pib', 'caged', 'tse', 'inmet'}

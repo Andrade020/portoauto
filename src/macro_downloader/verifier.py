@@ -2,11 +2,13 @@
 """
 carregar_dados_brutos.py
 -------------------------
-Script unificado para ler, padronizar e salvar em formato Parquet (bronze)
+Script unificado para ler, padronizar
+ e potencialmente salvar em formato Parquet (bronze) se quiser
 os dados brutos.
 
-Adaptado para identificar e processar de forma inteligente apenas os arquivos
-do período mais recente para cada fonte de dados.
+Adaptado para identificar e processar
+ << apenas os arquivos do período mais recente >>
+ para cada fonte de dados.
 """
 
 import os
@@ -19,11 +21,11 @@ import pandas as pd
 from typing import List
 
 # ==============================================================================
-# 1. FUNÇÕES UTILITÁRIAS E CONFIGURAÇÃO DE CAMINHOS
+# PARTE 1: #* Vou encontrar a raiz do projeto, e configurar caminhos de forma geral
 # ==============================================================================
 
 def find_project_root(marker: str = '.git') -> str:
-    """Localiza a raiz do projeto subindo na árvore de diretórios."""
+    """ encontra a raiz do projeto subindo na tree de dirs """
     current_path = os.path.abspath(os.path.dirname(__file__))
     while current_path != os.path.dirname(current_path):
         if os.path.isdir(os.path.join(current_path, marker)):
@@ -31,16 +33,13 @@ def find_project_root(marker: str = '.git') -> str:
         current_path = os.path.dirname(current_path)
     raise FileNotFoundError(f"Não foi possível encontrar a raiz do projeto (marcador '{marker}').")
 
-try:
-    PROJECT_ROOT = find_project_root()
-    print(f"Raiz do projeto encontrada: {PROJECT_ROOT}")
-    DIR_MACRO = os.path.join(PROJECT_ROOT, "data_raw", "dados_macro")
-    DIR_MACRO_ADICIONAIS = os.path.join(PROJECT_ROOT, "data_raw", "dados_macro_adicionais")
-    BRONZE_DIR = os.path.join(PROJECT_ROOT, "data_processed", "bronze")
-    os.makedirs(BRONZE_DIR, exist_ok=True)
-except FileNotFoundError as e:
-    print(f"ERRO CRÍTICO: {e}")
-    exit(1)
+PROJECT_ROOT = find_project_root()
+print(f"Raiz do projeto encontrada: {PROJECT_ROOT}")
+DIR_MACRO = os.path.join(PROJECT_ROOT, "data_raw", "dados_macro")
+DIR_MACRO_ADICIONAIS = os.path.join(PROJECT_ROOT, "data_raw", "dados_macro_adicionais")
+BRONZE_DIR = os.path.join(PROJECT_ROOT, "data_processed", "bronze")
+os.makedirs(BRONZE_DIR, exist_ok=True)
+
 
 def print_section(title: str):
     print(f"\n{'=' * (len(title) + 4)}\n| {title} |\n{'=' * (len(title) + 4)}")
@@ -75,10 +74,7 @@ def read_smart(path: str, nrows: int = None, **kwargs) -> pd.DataFrame | None:
         print(f"    -> ERRO ao ler o arquivo {os.path.basename(path)}: {e}")
     return None
 
-# ==============================================================================
-# 3. MÓDULOS DE CARREGAMENTO E PADRONIZAÇÃO (ADAPTADOS)
-# ==============================================================================
-
+# PARTE II: aqui vou configurar os módulos de carregar os arquivos
 def load_cvm(paths: List[str], preview_rows: int) -> pd.DataFrame | None:
     """Carrega e une múltiplos arquivos CSV da CVM para um dado período."""
     print_sub(f"Fonte: CVM - Informes FIDC (período mais recente)")
