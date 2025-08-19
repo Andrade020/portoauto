@@ -24,11 +24,11 @@ pd.options.display.max_rows = 200
 
 """##### <span style="color:#CFFFE5;">NOVIDADE versão 1.02</span>"""
 
-DIAS_ATRASO_DEFINICAO_VENCIDO = 30
+DIAS_ATRASO_DEFINICAO_VENCIDO = 60
 
 """### <span style="color:#AEE5F9;">  Leitura e Preparação dos Dados
 <span style="color: #FFB3B3; font-size: 15px; font-weight: bold;">
-  ATENÇÃO: REDIFINIR AQUI OS PATHS
+   ATENÇÃO: REDIFINIR AQUI OS PATHS
 </span>
 
 Defino os caminhos dos arquivos de entrada, carrego os dados, uno as duas fontes (`StarCard.xlsx` e `Originadores.xlsx`) usando a coluna `CCB` como chave e realizamos uma limpeza inicial, tratando colunas monetárias e de data.
@@ -375,6 +375,16 @@ print("\n" + "="*80)
 print("INICIANDO CÁLCULO UNIFICADO DAS MÉTRICAS")
 print("="*80)
 
+# Adicionando colunas de vencimento
+dias_de_atraso = (df_report['DataGeracao'] - df_report['DataVencimento']).dt.days
+df_report['_ValorVencido_1d'] = ((dias_de_atraso >= 1).astype(int) * df_report['ValorPresente'])
+df_report['_ValorVencido_30d'] = ((dias_de_atraso >= 30).astype(int) * df_report['ValorPresente'])
+df_report['_ValorVencido_60d'] = ((dias_de_atraso >= 60).astype(int) * df_report['ValorPresente'])
+
+total_vencido_1d_carteira = df_report['_ValorVencido_1d'].sum()
+total_vencido_30d_carteira = df_report['_ValorVencido_30d'].sum()
+total_vencido_60d_carteira = df_report['_ValorVencido_60d'].sum()
+
 vp_col_name = 'Valor Presente \n(R$ MM)'
 vl_col_name = 'Valor Líquido \n(R$ MM)'
 tabelas_metricas = {}
@@ -393,21 +403,35 @@ for nome_analise, coluna in dimensoes_analise.items():
     contratos_vencidos_unicos = df_report[df_report['_ContratoVencido_Flag'] == 1].groupby(coluna, observed=False)['CCB'].nunique()
 
     df_metricas = pd.DataFrame({'Nº Contratos Únicos': total_contratos_unicos}) # < aqui comeco a base da tabela
-    df_metricas = df_metricas.join(pd.DataFrame({'Nº Contratos Vencidos': contratos_vencidos_unicos}))
-    df_metricas['Nº Contratos Vencidos'] = df_metricas['Nº Contratos Vencidos'].fillna(0).astype(int) # Preenche com 0 se não houver vencidos
-
+    
     # junto somas como antes
-    somas_financeiras = grouped[['_ValorLiquido', 'ValorPresente', '_ValorVencido']].sum()
+    somas_financeiras = grouped[['_ValorLiquido', 'ValorPresente', '_ValorVencido', '_ValorVencido_1d', '_ValorVencido_30d', '_ValorVencido_60d']].sum()
     df_metricas = df_metricas.join(somas_financeiras)
 
     # calc % :
     df_metricas['%PDD'] = (1 - df_metricas['_ValorLiquido'] / df_metricas['ValorPresente']) * 100
-    df_metricas['% Contratos Vencidos'] = (df_metricas['Nº Contratos Vencidos'] / df_metricas['Nº Contratos Únicos']) * 100 # Agora a fórmula está correta
+    df_metricas['% Contratos Vencidos'] = (contratos_vencidos_unicos / df_metricas['Nº Contratos Únicos']) * 100 # Agora a fórmula está correta
+    df_metricas['vencido 1d / presente'] = (df_metricas['_ValorVencido_1d'] / df_metricas['ValorPresente']) * 100
+    df_metricas['vencido 30d / presente'] = (df_metricas['_ValorVencido_30d'] / df_metricas['ValorPresente']) * 100
+    df_metricas['vencido 60d / presente'] = (df_metricas['_ValorVencido_60d'] / df_metricas['ValorPresente']) * 100
+    df_metricas['vencido 1d / vencidos carteira'] = (df_metricas['_ValorVencido_1d'] / total_vencido_1d_carteira) * 100
+    df_metricas['vencido 30d / vencidos carteira'] = (df_metricas['_ValorVencido_30d'] / total_vencido_30d_carteira) * 100
+    df_metricas['vencido 60d / vencidos carteira'] = (df_metricas['_ValorVencido_60d'] / total_vencido_60d_carteira) * 100
 
     # organizo as colunas
-    df_metricas = df_metricas.rename(columns={'ValorPresente': vp_col_name, '_ValorLiquido': vl_col_name, 'Nº Contratos Únicos': 'Nº Contratos'})
+    df_metricas = df_metricas.rename(columns={
+        'ValorPresente': vp_col_name, 
+        '_ValorLiquido': vl_col_name, 
+        'Nº Contratos Únicos': 'Nº Contratos',
+        'vencido 1d / presente': 'Venc. 1d / VP Total',
+        'vencido 30d / presente': 'Venc. 30d / VP Total',
+        'vencido 60d / presente': 'Venc. 60d / VP Total',
+        'vencido 1d / vencidos carteira': 'Venc. 1d / Venc. Carteira',
+        'vencido 30d / vencidos carteira': 'Venc. 30d / Venc. Carteira',
+        'vencido 60d / vencidos carteira': 'Venc. 60d / Venc. Carteira'
+        })
     df_metricas[[vp_col_name, vl_col_name]] /= 1e6
-    df_metricas = df_metricas.drop(columns=['_ValorLiquido', '_ValorVencido'], errors='ignore')
+    df_metricas = df_metricas.drop(columns=['_ValorLiquido', '_ValorVencido', '_ValorVencido_1d', '_ValorVencido_30d', '_ValorVencido_60d'], errors='ignore')
 
     tabelas_metricas[nome_analise] = df_metricas
 
@@ -694,7 +718,13 @@ html_css = """
     summary::-webkit-details-marker { display: none; }
     summary::before { content: '► '; margin-right: 8px; font-size: 0.8em;}
     details[open] summary::before { content: '▼ '; }
-    details .content-wrapper { padding: 20px; background-color: #FFFFFF; }
+    
+    details .content-wrapper { 
+        padding: 20px; 
+        background-color: #FFFFFF;
+        overflow-x: auto; /* <-- NOVO: Adiciona a barra de rolagem horizontal */
+    }
+
     table.dataframe, th, td { border: 1px solid #bbbbbb; }
     table.dataframe { border-collapse: collapse; width: 100%; }
     th, td { text-align: left; padding: 10px; vertical-align: middle; }
@@ -835,16 +865,25 @@ for nome_analise, coluna in dimensoes_analise.items():
     df_final.index.name = nome_analise
     df_final.reset_index(inplace=True)
 
+    # Nomes das novas colunas (melhorados)
+    novas_colunas_vencimento = [
+        'Venc. 1d / VP Total',
+        'Venc. 30d / VP Total',
+        'Venc. 60d / VP Total',
+        'Venc. 1d / Venc. Carteira',
+        'Venc. 30d / Venc. Carteira',
+        'Venc. 60d / Venc. Carteira'
+    ]
+
     colunas_ordem = [
         nome_analise,
         'Nº Contratos',
-        'Nº Contratos Vencidos',
         '% Contratos Vencidos',
         vl_col_name,
         vp_col_name,
-        '%PDD'
-        # '% Vol. Vencido' # COLUNA REMOVIDA
-    ]
+        '%PDD',
+    ] + novas_colunas_vencimento
+    
     if 'Ticket Ponderado (R$)' in df_final.columns:
         colunas_ordem.append('Ticket Ponderado (R$)')
     if 'Prazo Médio (meses)' in df_final.columns: # NOVO
@@ -874,12 +913,16 @@ for nome_analise, coluna in dimensoes_analise.items():
         vl_col_name: lambda x: f'{x:,.2f}',
         vp_col_name: lambda x: f'{x:,.2f}',
         'Nº Contratos': lambda x: f'{x:,.0f}'.replace(',', '.'),
-        'Nº Contratos Vencidos': lambda x: f'{x:,.0f}'.replace(',', '.'),
         'Ticket Ponderado (R$)': lambda x: f'R$ {x:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.'),
         'Prazo Médio (meses)': lambda x: f'{x:,.2f}', # NOVO
         '%PDD': lambda x: f'{x:,.2f}%',
         '% Contratos Vencidos': lambda x: f'{x:,.2f}%',
     }
+
+    # Adiciona formatação para as novas colunas
+    for col in novas_colunas_vencimento:
+        formatters[col] = lambda x: f'{x:,.2f}%'
+
 
     for col in colunas_tir_ordenadas:
         formatters[col] = lambda x: f'{x:,.2f}%'
