@@ -28,8 +28,7 @@ DIAS_ATRASO_DEFINICAO_VENCIDO = 60
 
 """### <span style="color:#AEE5F9;">  Leitura e Preparação dos Dados
 <span style="color: #FFB3B3; font-size: 15px; font-weight: bold;">
-   ATENÇÃO: REDIFINIR AQUI OS PATHS
-</span>
+   ATENÇÃO: REDEFINIR AQUI OS PATHS</span>
 
 Defino os caminhos dos arquivos de entrada, carrego os dados, uno as duas fontes (`StarCard.xlsx` e `Originadores.xlsx`) usando a coluna `CCB` como chave e realizamos uma limpeza inicial, tratando colunas monetárias e de data.
 """
@@ -404,23 +403,38 @@ for nome_analise, coluna in dimensoes_analise.items():
 
     df_metricas = pd.DataFrame({'Nº Contratos Únicos': total_contratos_unicos}) # < aqui comeco a base da tabela
     
-    # junto somas como antes
+    df_metricas = pd.DataFrame({'Nº Contratos Únicos': total_contratos_unicos})  # < aqui comeco a base da tabela
     somas_financeiras = grouped[['_ValorLiquido', 'ValorPresente', '_ValorVencido', '_ValorVencido_1d', '_ValorVencido_30d', '_ValorVencido_60d']].sum()
     df_metricas = df_metricas.join(somas_financeiras)
 
     # calc % :
     df_metricas['%PDD'] = (1 - df_metricas['_ValorLiquido'] / df_metricas['ValorPresente']) * 100
-    # <-- ALTERAÇÃO AQUI: Adicionado .fillna(0) para tratar casos sem vencidos
-    df_metricas['% Contratos Vencidos'] = (contratos_vencidos_unicos / df_metricas['Nº Contratos Únicos']).fillna(0) * 100 
-    
+    df_metricas['% Contratos Vencidos'] = (contratos_vencidos_unicos / df_metricas['Nº Contratos Únicos']) * 100 # Agora a fórmula está correta
     df_metricas['vencido 1d / presente'] = (df_metricas['_ValorVencido_1d'] / df_metricas['ValorPresente']) * 100
-    df_metricas['vencido 30d / presente'] = (df_metricas['_ValorVencido_30d'] / df_metricas['ValorPresente']) * 100
-    df_metricas['vencido 60d / presente'] = (df_metricas['_ValorVencido_60d'] / df_metricas['ValorPresente']) * 100
-    df_metricas['vencido 1d / vencidos carteira'] = (df_metricas['_ValorVencido_1d'] / total_vencido_1d_carteira) * 100
-    df_metricas['vencido 30d / vencidos carteira'] = (df_metricas['_ValorVencido_30d'] / total_vencido_30d_carteira) * 100
-    df_metricas['vencido 60d / vencidos carteira'] = (df_metricas['_ValorVencido_60d'] / total_vencido_60d_carteira) * 100
-
-    # organizo as colunas
+    df_metricas['vencido 1d / presente'] = df_metricas.apply(
+        lambda row: (row['_ValorVencido_1d'] / row['ValorPresente'] * 100) if row['ValorPresente'] > 0 else 0,
+        axis=1
+    )
+    df_metricas['vencido 30d / presente'] = df_metricas.apply(
+        lambda row: (row['_ValorVencido_30d'] / row['ValorPresente'] * 100) if row['ValorPresente'] > 0 else 0,
+        axis=1
+    )
+    df_metricas['vencido 60d / presente'] = df_metricas.apply(
+        lambda row: (row['_ValorVencido_60d'] / row['ValorPresente'] * 100) if row['ValorPresente'] > 0 else 0,
+        axis=1
+    )
+    df_metricas['vencido 1d / vencidos carteira'] = df_metricas.apply(
+        lambda row: (row['_ValorVencido_1d'] / total_vencido_1d_carteira * 100) if total_vencido_1d_carteira > 0 else 0,
+        axis=1
+    )
+    df_metricas['vencido 30d / vencidos carteira'] = df_metricas.apply(
+        lambda row: (row['_ValorVencido_30d'] / total_vencido_30d_carteira * 100) if total_vencido_30d_carteira > 0 else 0,
+        axis=1
+    )
+    df_metricas['vencido 60d / vencidos carteira'] = df_metricas.apply(
+        lambda row: (row['_ValorVencido_60d'] / total_vencido_60d_carteira * 100) if total_vencido_60d_carteira > 0 else 0,
+        axis=1
+    )    # organizo as colunas
     df_metricas = df_metricas.rename(columns={
         'ValorPresente': vp_col_name, 
         '_ValorLiquido': vl_col_name, 
