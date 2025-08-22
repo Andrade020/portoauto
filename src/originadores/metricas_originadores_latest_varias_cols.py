@@ -7,9 +7,9 @@ Este notebook realiza uma análise completa da carteira de recebíveis, consolid
 ### <span style="color:#AEE5F9;"> Bibliotecas e Configurações Iniciais
 """
 
-# =============================================================================
-# Bibliotecas   ===============================================================
-# =============================================================================
+#* ==============>>>>>>>>
+#* Bibliotecas   >>>>>>>>
+#* ==============>>>>>>>>
 import pandas as pd
 import numpy as np
 import os
@@ -24,7 +24,7 @@ pd.options.display.max_rows = 200
 
 """##### <span style="color:#CFFFE5;">NOVIDADE versão 1.02</span>"""
 
-DIAS_ATRASO_DEFINICAO_VENCIDO = 60
+DIAS_ATRASO_DEFINICAO_VENCIDO = 1
 
 """### <span style="color:#AEE5F9;">  Leitura e Preparação dos Dados
 <span style="color: #FFB3B3; font-size: 15px; font-weight: bold;">
@@ -183,7 +183,7 @@ Adiciono novas colunas ao DataFrame para permitir análises mais aprofundadas po
 """
 
 # =============================================================================
-# CÉLULA DE CRIAÇÃO DE NOVOS SEGMENTOS PARA ANÁLISE
+# novos PARA ANÁLISE
 # =============================================================================
 print("\n" + "="*80)
 print("--- Iniciando criação de colunas de segmentação customizadas ---")
@@ -194,7 +194,7 @@ df_report = df_final2.copy()
 df_report['Produto'] = df_report['Produto'].fillna('')
 df_report['Convênio'] = df_report['Convênio'].fillna('')
 
-# --- Segmento 1: Tipo de Produto ---
+# Tipo de Produto --- emprestmo, cartao, etc
 print("1. Criando a coluna '_TipoProduto'...")
 condicoes_produto = [
     df_report['Produto'].str.contains('Empréstimo', case=False, na=False),
@@ -205,7 +205,7 @@ opcoes_produto = ['Empréstimo', 'Cartão RMC', 'Cartão Benefício']
 df_report['_TipoProduto'] = np.select(condicoes_produto, opcoes_produto, default='Outros')
 
 
-# --- Segmento 2: Tipo de Empregado ---
+#  Tipo de Empregado --- das nossas divisoes
 print("2. Criando a coluna '_TipoEmpregado'...")
 condicoes_empregado = [
     df_report['Produto'].str.contains('Efetivo|Efetivio', case=False, na=False, regex=True),
@@ -217,12 +217,12 @@ opcoes_empregado = ['Efetivo', 'Temporário', 'Contratado', 'Comissionado']
 df_report['_TipoEmpregado'] = np.select(condicoes_empregado, opcoes_empregado, default='Outros')
 
 
-# --- Segmento 3: Esfera do Convênio ---
+#  Esfera(nível) do Convênio ---
 print("3. Criando a coluna '_EsferaConvenio'...")
-# Usamos regex para buscar por múltiplas palavras (ex: 'GOV.' ou 'AGN -')
-# O caractere '\' antes do '.' é para tratar o ponto como um caractere literal e não um coringa.
+# Uso regex para buscar qd tem várias palavras (ex: 'GOV.' ou 'AGN -')
+
 condicoes_convenio = [
-    df_report['Convênio'].str.contains(r'GOV\.|AGN -', case=False, na=False, regex=True),
+    df_report['Convênio'].str.contains(r'GOV\.|AGN -', case=False, na=False, regex=True),    # obs: # O caractere '\' antes do '.' é para tratar o ponto como um caractere literal e não um coringa.
     df_report['Convênio'].str.contains(r'PREF\.|PRERF', case=False, na=False, regex=True)
 ]
 opcoes_convenio = ['Estadual', 'Municipal']
@@ -230,11 +230,9 @@ df_report['_EsferaConvenio'] = np.select(condicoes_convenio, opcoes_convenio, de
 
 
 
-# --- Segmento 4: Faixas de Idade ---
+# bins de age
 print("4. Criando a coluna '_IdadesBins'...")
-# Verificamos se a coluna de idade existe antes de prosseguir
-if '_IdadeCliente' in df_report.columns:
-    # Usamos o seu código para criar os bins
+if '_IdadeCliente' in df_report.columns: # codigo de felipe 
     bins = [
         df_report['_IdadeCliente'].min() - 1,
         37,
@@ -251,7 +249,7 @@ if '_IdadeCliente' in df_report.columns:
         print("[AVISO] Não foi possível criar os bins de idade devido a um problema com os limites.")
 
 
-# --- Verificação da criação das colunas ---
+#* verif
 print("\n--- Contagem de valores para as novas colunas ---")
 print("\n_TipoProduto:")
 print(df_report['_TipoProduto'].value_counts())
@@ -341,8 +339,6 @@ Aqui preparo as tabelas de métricas (PDD, Vencido, Ticket Médio) que serão ex
 dimensoes_analise = {
     'Cedentes': 'Cedente',
     'Originadores': 'Originador',
-    'Promotoras': 'Promotora',
-    'Produtos': 'Produto',
     'Convênios': 'Convênio',
     'Situação': 'Situacao',
     'UF': 'UF',
@@ -350,15 +346,17 @@ dimensoes_analise = {
     'Pagamento Parcial': 'PagamentoParcial',
     'Tem Muitos Contratos':'_MuitosContratos',
     'Tem Muitos Entes':'_MuitosEntes',
-    # NOVAS DIMENSÕES ADICIONADAS
+    # nw
     'Tipo de Produto': '_TipoProduto',
     'Tipo de Empregado': '_TipoEmpregado',
     'Esfera do Convênio': '_EsferaConvenio',
-    'Faixa de Idade': '_IdadesBins'
+    'Faixa de Idade': '_IdadesBins',
+    'Produtos': 'Produto',
+    'Promotoras': 'Promotora'
 }
 dimensoes_analise = {k: v for k, v in dimensoes_analise.items() if v in df_report.columns} # prova se colunas tao no df
 
-# DIC DE EXEMPLO
+# DIC DE EXEMPLO -custos pra tir
 COST_DICT = {
     'GOV. GOIAS': [0.035, 5.92],
     'PREF. COTIA': [0.03, 2.14],
@@ -369,7 +367,7 @@ os.makedirs(output_path, exist_ok=True)
 
 
 #***********************
-#* CÁLCULO MÉTRICAS ( NOVIDADE: contagem de CONTRATOS vencidos)
+#* CÁLCULO MÉTRICAS 
 #***********************
 print("\n" + "="*80)
 print("INICIANDO CÁLCULO UNIFICADO DAS MÉTRICAS")
@@ -387,6 +385,7 @@ total_vencido_60d_carteira = df_report['_ValorVencido_60d'].sum()
 
 vp_col_name = 'Valor Presente \n(R$ MM)'
 vl_col_name = 'Valor Líquido \n(R$ MM)'
+col_contratos_venc_perc = f"% Contratos Venc. (>{DIAS_ATRASO_DEFINICAO_VENCIDO}d)" # NOVO: Nome dinâmico
 tabelas_metricas = {}
 
 for nome_analise, coluna in dimensoes_analise.items():
@@ -410,8 +409,7 @@ for nome_analise, coluna in dimensoes_analise.items():
 
     # calc % :
     df_metricas['%PDD'] = (1 - df_metricas['_ValorLiquido'] / df_metricas['ValorPresente']) * 100
-    # <-- ALTERAÇÃO AQUI: Adicionado .fillna(0) para tratar casos sem vencidos
-    df_metricas['% Contratos Vencidos'] = (contratos_vencidos_unicos / df_metricas['Nº Contratos Únicos']).fillna(0) * 100 
+    df_metricas[col_contratos_venc_perc] = (contratos_vencidos_unicos / df_metricas['Nº Contratos Únicos']).fillna(0) * 100 
     
     df_metricas['vencido 1d / presente'] = (df_metricas['_ValorVencido_1d'] / df_metricas['ValorPresente']) * 100
     df_metricas['vencido 30d / presente'] = (df_metricas['_ValorVencido_30d'] / df_metricas['ValorPresente']) * 100
@@ -425,12 +423,12 @@ for nome_analise, coluna in dimensoes_analise.items():
         'ValorPresente': vp_col_name, 
         '_ValorLiquido': vl_col_name, 
         'Nº Contratos Únicos': 'Nº Contratos',
-        'vencido 1d / presente': 'Venc. 1d / VP Total',
-        'vencido 30d / presente': 'Venc. 30d / VP Total',
-        'vencido 60d / presente': 'Venc. 60d / VP Total',
-        'vencido 1d / vencidos carteira': 'Venc. 1d / Venc. Carteira',
-        'vencido 30d / vencidos carteira': 'Venc. 30d / Venc. Carteira',
-        'vencido 60d / vencidos carteira': 'Venc. 60d / Venc. Carteira'
+        'vencido 1d / presente': 'Venc. 1d / VP 1d',
+        'vencido 30d / presente': 'Venc. 30d / VP 30d',
+        'vencido 60d / presente': 'Venc. 60d / VP 60d',
+        'vencido 1d / vencidos carteira': 'Venc. 1d / Venc. Cart. 1d',
+        'vencido 30d / vencidos carteira': 'Venc. 30d / Venc. Cart. 30d',
+        'vencido 60d / vencidos carteira': 'Venc. 60d / Venc. Cart. 60d'
         })
     df_metricas[[vp_col_name, vl_col_name]] /= 1e6
     df_metricas = df_metricas.drop(columns=['_ValorLiquido', '_ValorVencido', '_ValorVencido_1d', '_ValorVencido_30d', '_ValorVencido_60d'], errors='ignore')
@@ -642,6 +640,15 @@ html_css = """
     .single-entry-message strong {
         color: #163f3f;
     }
+    
+    .summary-title {
+        font-size: 1.4em;
+        color: #163f3f;
+        border-bottom: 2px solid #76c6c5;
+        padding-bottom: 10px;
+        margin-top: 20px;
+        margin-bottom: 20px;
+    }
 
 
     .checks-container {
@@ -710,7 +717,7 @@ html_css = """
     header .report-title h3 { font-size: 1.1em; color: #a0a0a0; }
 
     /* Estilos dos Botões e Tabelas (sem alterações) */
-    .container-botoes { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 25px; }
+    .container-botoes { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 25px; margin-top: 40px; }
     .container-botoes > details { flex: 1 1 280px; border: 1px solid #76c6c5; border-radius: 8px; overflow: hidden; }
     .container-botoes > details[open] { flex-basis: 100%; }
     details summary { font-size: 1.1em; font-weight: bold; color: #FFFFFF; background-color: #163f3f; padding: 15px 20px; cursor: pointer; outline: none; list-style-type: none; }
@@ -721,10 +728,12 @@ html_css = """
     summary::before { content: '► '; margin-right: 8px; font-size: 0.8em;}
     details[open] summary::before { content: '▼ '; }
     
-    details .content-wrapper { 
+    .content-wrapper { 
         padding: 20px; 
         background-color: #FFFFFF;
-        overflow-x: auto; /* <-- NOVO: Adiciona a barra de rolagem horizontal */
+        overflow-x: auto; /* <-- Adiciona a barra de rolagem horizontal */
+        border: 1px solid #ddd;
+        border-radius: 8px;
     }
 
     table.dataframe, th, td { border: 1px solid #bbbbbb; }
@@ -827,6 +836,65 @@ html_parts.append(table_checks_html)
 
 html_parts.append("</div></details>")
 
+#*  NOVidade *************
+print("--> Gerando tabela de resumo da carteira total...")
+total_metrics = {
+    'Nº Contratos': df_report['CCB'].nunique(),
+    col_contratos_venc_perc: (df_report[df_report['_ContratoVencido_Flag'] == 1]['CCB'].nunique() / df_report['CCB'].nunique()) * 100,
+    vl_col_name: df_report['_ValorLiquido'].sum() / 1e6,
+    vp_col_name: df_report['ValorPresente'].sum() / 1e6,
+    '%PDD': (1 - df_report['_ValorLiquido'].sum() / df_report['ValorPresente'].sum()) * 100,
+    'Venc. 1d / VP 1d': (df_report['_ValorVencido_1d'].sum() / df_report['ValorPresente'].sum()) * 100,
+    'Venc. 30d / VP 30d': (df_report['_ValorVencido_30d'].sum() / df_report['ValorPresente'].sum()) * 100,
+    'Venc. 60d / VP 60d': (df_report['_ValorVencido_60d'].sum() / df_report['ValorPresente'].sum()) * 100,
+    'Venc. 1d / Venc. Cart. 1d': (df_report['_ValorVencido_1d'].sum() / total_vencido_1d_carteira) * 100,
+    'Venc. 30d / Venc. Cart. 30d': (df_report['_ValorVencido_30d'].sum() / total_vencido_30d_carteira) * 100,
+    'Venc. 60d / Venc. Cart. 60d': (df_report['_ValorVencido_60d'].sum() / total_vencido_60d_carteira) * 100,
+    'Ticket Ponderado (R$)': (df_report['ValorNominal'] * df_report['ValorPresente']).sum() / df_report['ValorPresente'].sum(),
+    'Prazo Médio (meses)': (df_report['Prazo'] * df_report['ValorPresente']).sum() / df_report['ValorPresente'].sum()
+}
+df_total = pd.DataFrame([total_metrics])
+# junto com a TIR total
+df_tir_total = df_tir_summary[df_tir_summary['DimensaoColuna'] == 'Carteira Total'].drop(columns=['DimensaoColuna', 'Segmento', 'Valor Presente TIR (M)'])
+df_total = pd.concat([df_total, df_tir_total.reset_index(drop=True)], axis=1)
+# ordena e formata
+# Nomes das novas colunas (melhorados)
+novas_colunas_vencimento = [
+    'Venc. 1d / VP 1d', 'Venc. 30d / VP 30d', 'Venc. 60d / VP 60d',
+    'Venc. 1d / Venc. Cart. 1d', 'Venc. 30d / Venc. Cart. 30d', 'Venc. 60d / Venc. Cart. 60d'
+]
+colunas_ordem_total = [
+    'Nº Contratos', col_contratos_venc_perc, vl_col_name, vp_col_name, '%PDD'
+] + novas_colunas_vencimento + ['Ticket Ponderado (R$)', 'Prazo Médio (meses)']
+ordem_ideal_tir = [
+    'TIR Bruta \n(% a.m. )', 'TIR Líquida de PDD \n(% a.m. )',
+    'TIR Líquida de custos \n(% a.m. )', 'TIR Líquida Final \n(% a.m. )'
+]
+colunas_tir_ordenadas = [col for col in ordem_ideal_tir if col in df_total.columns]
+colunas_finais_total = colunas_ordem_total + colunas_tir_ordenadas
+df_total = df_total[colunas_finais_total]
+# fmt
+formatters = {
+    vl_col_name: lambda x: f'{x:,.2f}', vp_col_name: lambda x: f'{x:,.2f}',
+    'Nº Contratos': lambda x: f'{x:,.0f}'.replace(',', '.'),
+    'Ticket Ponderado (R$)': lambda x: f'R$ {x:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.'),
+    'Prazo Médio (meses)': lambda x: f'{x:,.2f}', '%PDD': lambda x: f'{x:,.2f}%'
+}
+formatters[col_contratos_venc_perc] = lambda x: f'{x:,.2f}%'
+for col in novas_colunas_vencimento: formatters[col] = lambda x: f'{x:,.2f}%'
+for col in colunas_tir_ordenadas: formatters[col] = lambda x: f'{x:,.2f}%'
+df_total.columns = [col.replace('\n', '<br>') for col in df_total.columns]
+# html
+html_parts.append("<h2 class='summary-title'>Resumo da Carteira Total</h2>")
+html_parts.append("<div class='content-wrapper'>")
+html_parts.append(df_total.to_html(index=False, classes='dataframe', formatters=formatters, na_rep='-', escape=False))
+html_parts.append("</div>")
+
+
+
+#*  Início dos botões retráteis =================================================
+
+
 html_parts.append("<div class='container-botoes'>")
 dimensoes_ordem_alfabetica = ['CAPAG'] # add outras se necessário
 
@@ -834,7 +902,7 @@ for nome_analise, coluna in dimensoes_analise.items():
     if coluna not in df_report.columns or df_report[coluna].isnull().all(): continue
     print(f"--> Processando e gerando HTML para: '{nome_analise}'")
 
-    # NOVA LÓGICA: Verificar se o segmento tem apenas uma entrada
+    # agora ve  se o segmento tem apenas uma entrada
     unique_entries = df_report[coluna].dropna().unique()
     if len(unique_entries) <= 1:
         entry_name = unique_entries[0] if len(unique_entries) == 1 else "N/A"
@@ -844,7 +912,7 @@ for nome_analise, coluna in dimensoes_analise.items():
             <div class='content-wrapper'>
                 <p class='single-entry-message'>
                     Em <strong>'{nome_analise}'</strong>, toda a carteira se concentra em uma única entrada: <strong>{entry_name}</strong>.<br>
-                    Portanto, a análise detalhada para este item é idêntica à da carteira consolidada, já apresentada nos resumos gerais.
+                    Portanto, a análise detalhada para este item é idêntica à da carteira consolidada, já apresentada no resumo geral.
                 </p>
             </div>
         </details>
@@ -857,77 +925,31 @@ for nome_analise, coluna in dimensoes_analise.items():
 
     # Junção de Ticket, Prazo Médio e TIR.
     df_ticket = tabelas_ticket.get(nome_analise, pd.DataFrame())
-    df_prazo = tabelas_prazo_medio.get(nome_analise, pd.DataFrame()) # NOVO
+    df_prazo = tabelas_prazo_medio.get(nome_analise, pd.DataFrame()) 
     df_tir = df_tir_summary[df_tir_summary['DimensaoColuna'] == coluna].set_index('Segmento')
 
     df_final = df_final.join(df_ticket, how='outer')
-    df_final = df_final.join(df_prazo, how='outer') # NOVO
+    df_final = df_final.join(df_prazo, how='outer') 
     df_final = df_final.join(df_tir.drop(columns=['DimensaoColuna', 'Valor Presente TIR (M)']), how='outer')
 
     df_final.index.name = nome_analise
     df_final.reset_index(inplace=True)
 
-    # Nomes das novas colunas (melhorados)
-    novas_colunas_vencimento = [
-        'Venc. 1d / VP Total',
-        'Venc. 30d / VP Total',
-        'Venc. 60d / VP Total',
-        'Venc. 1d / Venc. Carteira',
-        'Venc. 30d / Venc. Carteira',
-        'Venc. 60d / Venc. Carteira'
-    ]
-
     colunas_ordem = [
-        nome_analise,
-        'Nº Contratos',
-        '% Contratos Vencidos',
-        vl_col_name,
-        vp_col_name,
-        '%PDD',
+        nome_analise, 'Nº Contratos', col_contratos_venc_perc, vl_col_name, vp_col_name, '%PDD',
     ] + novas_colunas_vencimento
     
-    if 'Ticket Ponderado (R$)' in df_final.columns:
-        colunas_ordem.append('Ticket Ponderado (R$)')
-    if 'Prazo Médio (meses)' in df_final.columns: # NOVO
-        colunas_ordem.append('Prazo Médio (meses)') # NOVO
-
-    ordem_ideal_tir = [
-        'TIR Bruta \n(% a.m. )',
-        'TIR Líquida de PDD \n(% a.m. )',
-        'TIR Líquida de custos \n(% a.m. )',
-        'TIR Líquida Final \n(% a.m. )'
-    ]
-
-    colunas_tir_ordenadas = [col for col in ordem_ideal_tir if col in df_final.columns]
+    if 'Ticket Ponderado (R$)' in df_final.columns: colunas_ordem.append('Ticket Ponderado (R$)')
+    if 'Prazo Médio (meses)' in df_final.columns: colunas_ordem.append('Prazo Médio (meses)')
 
     colunas_finais = colunas_ordem + colunas_tir_ordenadas
     outras_colunas = [col for col in df_final.columns if col not in colunas_finais]
     df_final = df_final[colunas_finais + outras_colunas]
 
-
     if nome_analise in ['CAPAG']:  # Orden
         df_final = df_final.sort_values(nome_analise, ascending=True).reset_index(drop=True)
     else:
         df_final = df_final.sort_values(vp_col_name, ascending=False).reset_index(drop=True)
-
-    # Format
-    formatters = {
-        vl_col_name: lambda x: f'{x:,.2f}',
-        vp_col_name: lambda x: f'{x:,.2f}',
-        'Nº Contratos': lambda x: f'{x:,.0f}'.replace(',', '.'),
-        'Ticket Ponderado (R$)': lambda x: f'R$ {x:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.'),
-        'Prazo Médio (meses)': lambda x: f'{x:,.2f}', # NOVO
-        '%PDD': lambda x: f'{x:,.2f}%',
-        '% Contratos Vencidos': lambda x: f'{x:,.2f}%',
-    }
-
-    # Adiciona formatação para as novas colunas
-    for col in novas_colunas_vencimento:
-        formatters[col] = lambda x: f'{x:,.2f}%'
-
-
-    for col in colunas_tir_ordenadas:
-        formatters[col] = lambda x: f'{x:,.2f}%'
 
     df_final.columns = [col.replace('\n', '<br>') for col in df_final.columns]
 
@@ -971,5 +993,5 @@ try:
 except Exception as e:
     print(f"\n[ERRO GRAVE] Não foi possível salvar o arquivo HTML: {e}")
 
-# Limpar memória
-del df_report, df_final2
+
+del df_report, df_final2 # limpo a memoria (pra rodar no jupyter etc)
