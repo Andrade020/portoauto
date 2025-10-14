@@ -166,7 +166,7 @@ else:
 # =============================================================================
 # CÉLULA 5: CONFIGURAÇÃO DA ANÁLISE E SELEÇÃO DO FUNDO (CORRIGIDA)
 # =============================================================================
-fname = 'FIDC FCT II'
+fname = 'FIDC FCT II SR2'
 comparables = []
 interval = 3
 
@@ -189,11 +189,10 @@ else:
 
 # %%
 # =============================================================================
-# CÉLULA 6 (VERSÃO MODIFICADA): EXIBINDO VALORES NEGATIVOS PARA % CDI
+# CÉLULA 6 (CORRIGIDA): Performance calculada via 'variacaoDia'
 # =============================================================================
-# Esta versão foi ajustada para exibir o valor calculado do % CDI mesmo
-# quando o fundo tem rentabilidade negativa, contanto que o CDI seja positivo.
 
+# A função de renderização da tabela não precisa de alterações.
 def render_mpl_table_detailed(data, col_width=1.5, row_height=0.625, font_size=10,
                               header_color=colorA, row_colors=['#f1f1f2', 'w'], edge_color='w',
                               bbox=[0, 0, 1, 1], ax=None, **kwargs):
@@ -217,9 +216,9 @@ def render_mpl_table_detailed(data, col_width=1.5, row_height=0.625, font_size=1
             cell.set_facecolor(header_color)
         else: # Data Rows
             if (k[0] - 1) % 3 == 2:
-                 cell.set_facecolor('#F0F0F0') 
+                cell.set_facecolor('#F0F0F0') 
             else:
-                 cell.set_facecolor(row_colors[k[0] % len(row_colors)])
+                cell.set_facecolor(row_colors[k[0] % len(row_colors)])
 
         if k[1] <= 0: # Header Columns
             cell.set_text_props(weight='bold', color=colorB)
@@ -228,13 +227,40 @@ def render_mpl_table_detailed(data, col_width=1.5, row_height=0.625, font_size=1
     return ax.get_figure(), ax
 
 
-if not df_cota.empty:
-    print("Iniciando geração da tabela de performance (exibindo valores negativos)...")
-    
-    df_cotas_t = df_cota.T
-    df_cotas_pct = df_cotas_t.pct_change().dropna()
+if not df_cota.empty and not df_long.empty:
+    print("Iniciando geração da tabela de performance (cálculo via 'variacaoDia')...")
 
-    years = sorted(set(df_cotas_t.index.year))
+    # --- NOVA LÓGICA DE PREPARAÇÃO DOS DADOS ---
+    # 1. Limpeza dos dados brutos do df_long
+    df_clean = df_long.iloc[1:].copy()
+    df_clean['data'] = pd.to_datetime(df_clean['data'], dayfirst=True)
+    
+    # ***** LINHA DE CORREÇÃO ADICIONADA AQUI *****
+    # Remove espaços em branco do início e do fim dos nomes dos fundos
+    df_clean['nomeFundo'] = df_clean['nomeFundo'].str.strip()
+
+    # 2. Cálculo do retorno diário a partir da coluna 'variacaoDia'
+    df_clean['retorno_diario'] = (
+        df_clean['variacaoDia']
+        .str.replace('.', '', regex=False)
+        .str.replace(',', '.', regex=False)
+        .astype(float)
+    ) / 100
+    
+    # 3. Pivotar para criar o DataFrame de retornos
+    df_retornos_diarios = df_clean.pivot_table(
+        index='data',
+        columns='nomeFundo',
+        values='retorno_diario'
+    )
+    
+    # 4. Adicionar o retorno do benchmark (CDI)
+    if 'CDI' in df_cota.index:
+        df_retornos_diarios['CDI'] = df_cota.loc['CDI'].pct_change()
+    # --- FIM DA NOVA LÓGICA ---
+
+    # O restante do código agora usará o 'df_retornos_diarios'
+    years = sorted(set(df_retornos_diarios.index.year))
     months_str = ['Jan', 'Fev', 'Mar', 'Abr', 'Maio', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
     all_months_num = [f'{i:02d}' for i in range(1, 13)]
     bench_name = comparables[1]
@@ -253,12 +279,12 @@ if not df_cota.empty:
         row_bench = [year, bench_name]
         row_pct_bench = [year, f"% {bench_name}"]
         
-        series_fundo = df_cotas_pct[fname]
-        series_bench = df_cotas_pct[bench_name]
+        series_fundo = df_retornos_diarios[fname]
+        series_bench = df_retornos_diarios[bench_name]
         
         for month in all_months_num:
             ym = f'{year}-{month}'
-            mask = df_cotas_pct.index.strftime('%Y-%m') == ym
+            mask = df_retornos_diarios.index.strftime('%Y-%m') == ym
             if mask.sum() == 0:
                 row_fundo.append('-')
                 row_bench.append('-')
@@ -270,17 +296,14 @@ if not df_cota.empty:
                 row_fundo.append(format_pct_smart(ret_fundo))
                 row_bench.append(format_pct_smart(ret_bench))
                 
-                # --- MUDANÇA CRÍTICA AQUI ---
-                # Agora, calcula o % CDI contanto que o CDI seja positivo.
                 if ret_bench > 0:
                     pct_cdi = ret_fundo / ret_bench
                     row_pct_bench.append(format_pct_of_bench(pct_cdi))
                 else:
-                    # Mantém 'N/A' apenas se o CDI for negativo ou zero.
                     row_pct_bench.append('N/A')
 
-        # Mesma lógica para o Ano (YTD)
-        mask_ano = df_cotas_pct.index.year == year
+        # Ano (YTD)
+        mask_ano = df_retornos_diarios.index.year == year
         ret_fundo_ano = (series_fundo[mask_ano] + 1).product() - 1
         ret_bench_ano = (series_bench[mask_ano] + 1).product() - 1
         row_fundo.append(format_pct_smart(ret_fundo_ano))
@@ -290,15 +313,15 @@ if not df_cota.empty:
         else:
             row_pct_bench.append('N/A')
 
-        # Mesma lógica para "Desde o Início"
+        # Desde o Início
         start_date = df_cota.loc[fname].dropna().index[0]
-        mask_inicio = (df_cotas_pct.index.year <= year) & (df_cotas_pct.index >= start_date)
+        mask_inicio = (df_retornos_diarios.index.year <= year) & (df_retornos_diarios.index >= start_date)
         ret_fundo_inicio = (series_fundo[mask_inicio] + 1).product() - 1
         ret_bench_inicio = (series_bench[mask_inicio] + 1).product() - 1
         row_fundo.append(format_pct_smart(ret_fundo_inicio))
         row_bench.append(format_pct_smart(ret_bench_inicio))
         if ret_bench_inicio > 0:
-             row_pct_bench.append(format_pct_of_bench(ret_fundo_inicio / ret_bench_inicio))
+            row_pct_bench.append(format_pct_of_bench(ret_fundo_inicio / ret_bench_inicio))
         else:
             row_pct_bench.append('N/A')
         
@@ -328,8 +351,8 @@ if not df_cota.empty:
     plt.show()
 
 else:
-    print("Não há dados de cota para gerar a tabela de rentabilidade.")
-    
+    print("Não há dados de cota ou dados brutos (df_long) para gerar a tabela de rentabilidade.")
+
 # %%
 # =============================================================================
 # CÉLULA 8: GRÁFICO DE RETORNO ACUMULADO
@@ -736,7 +759,7 @@ ref_date = datetime.now()
 
 # --- PONTO DE MODIFICAÇÃO PRINCIPAL ---
 # ! ATENÇÃO: Coloque aqui o nome exato do fundo usado para gerar os gráficos de rentabilidade.
-fname_rentabilidade = 'FIDC FCT II'
+fname_rentabilidade = 'FIDC FCT II SR2'
 # -----------------------------------------
 
 # --- CAMINHOS PARA AS PASTAS ---

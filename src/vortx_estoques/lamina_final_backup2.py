@@ -1,11 +1,4 @@
 # %%
-
-#!    --    -->     TODO:    <--    --     !#
-# mes no nome do relatorio
-# remover 2 gráficos iniciais
-# nome do fundo
-# 
-
 # =============================================================================
 # CÉLULA 1: BIBLIOTECAS E CONFIGURAÇÕES GERAIS
 # =============================================================================
@@ -23,9 +16,12 @@ from docx2pdf import convert
 from IPython.display import display
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-import re
+
 from dateutil.parser import parse
 import time
+
+#pip install python-dateutil
+
 
 # --- PARÂMETROS DE ENTRADA E SAÍDA ---
 # ! ATENÇÃO: Configure os caminhos e nomes de arquivos aqui.
@@ -34,14 +30,13 @@ import time
 FUNDO_ALVO = 'FIDC FCT II SR2'
 
 # CAMINHOS DOS DADOS DE ENTRADA
-PATH_RENTABILIDADE = r"C:\Users\Leo\Desktop\Porto_Real\portoauto\src\vortx_estoques\data\Rentabilidades\151265-Rentabilidade_Sintetica.csv"
-# ### ALTERAÇÃO ### - Caminho do estoque atualizado para a pasta principal.
-PATH_ESTOQUE = r"C:\Users\Leo\Desktop\Porto_Real\portoauto\src\vortx_estoques\data\Estoques"
+PATH_RENTABILIDADE = r"C:\Users\Leo\Desktop\Porto_Real\portoauto\src\vortx_estoques\data\135972-Rentabilidade_Sintetica.csv"
+PATH_ESTOQUE = r"C:\Users\Leo\Desktop\Porto_Real\portoauto\src\vortx_estoques\data\estoque_consolidado_agosto"
 PATH_TEMPLATE_DOCX = r"C:\Users\Leo\Desktop\Porto_Real\portoreal\notebooks\template.docx"
 PATH_LOGO = r"C:\Users\Leo\Desktop\Porto_Real\portoauto\images\logo.png"
-PATH_ANBIMA_LOGO = r"C:\Users\Leo\Desktop\Porto_Real\portoauto\images\anbima.png"
+PATH_ANBIMA_LOGO = r"C:\Users\Leo\Desktop\Porto_Real\portoauto\images\anbima.png" 
 PATH_LOGO_FICTOR = r"C:\Users\Leo\Desktop\Porto_Real\portoauto\images\logo_fictor.png"
-PATH_LOGO_VORTX = r"C:\Users\Leo\Desktop\Porto_Real\portoauto\images\logo_vortx.png"
+PATH_LOGO_VORTX = r"C:\Users\Leo\Desktop\Porto_Real\portoauto\images\logo_vortx.png" # Lembre-se de converter o SVG para PNG!
 
 # CAMINHOS DE SAÍDA
 PASTA_SAIDA_IMAGENS = r"C:\Users\Leo\Desktop\Porto_Real\portoauto\src\vortx_estoques\output\lamina_imagens"
@@ -103,88 +98,58 @@ def carregar_dados_rentabilidade(caminho_arquivo):
         print(f"ERRO: Arquivo de rentabilidade não encontrado em: {caminho_arquivo}")
         return pd.DataFrame()
 
-
 def processar_dados_estoque(caminho_pasta):
-    """Lê o conjunto de arquivos de estoque mais recente e calcula o status de vencimento."""
-    print("\nCarregando dados do novo estoque...")
-    todos_arquivos = glob.glob(os.path.join(caminho_pasta, '**/*.csv'), recursive=True)
-    if not todos_arquivos:
+    """Lê e consolida os arquivos de estoque de uma pasta."""
+    print("\nCarregando dados de estoque...")
+    arquivos_csv = glob.glob(os.path.join(caminho_pasta, "*.csv"))
+    if not arquivos_csv:
         print(f"AVISO: Nenhum arquivo CSV de estoque encontrado em {caminho_pasta}")
         return pd.DataFrame()
 
-    data_recente = None
-    regex_data = re.compile(r'(\d{2}\.\d{2}\.\d{2})')
+    all_dfs = []
+    float_cols = [
+        'Valor Aquisicao', 'Valor Nominal', 'Valor Presente', 'PDD Vencido',
+        'PDD Total', 'Taxa Operada Originador', 'CET Mensal', 'Taxa CCB',
+        'Taxa Originador Split', 'Taxa Split FIDC'
+    ]
+    date_cols = ['Data Aquisicao', 'Data Vencimento', 'Data Referencia', 'Data de Nascimento']
 
-    for arquivo in todos_arquivos:
-        match = regex_data.search(os.path.basename(arquivo))
-        if match:
-            data_obj = datetime.strptime(match.group(1), '%d.%m.%y')
-            if data_recente is None or data_obj > data_recente:
-                data_recente = data_obj
-
-    if data_recente is None:
-        print("AVISO: Não foi possível determinar a data do conjunto de estoque mais recente.")
-        return pd.DataFrame()
-
-    data_recente_str = data_recente.strftime('%d.%m.%y')
-    print(f"Usando o conjunto de estoque da data (data de referência): {data_recente_str}")
-
-    arquivos_para_ler = [f for f in todos_arquivos if data_recente_str in os.path.basename(f)]
-    lista_dfs_partes = []
-    for arquivo in arquivos_para_ler:
+    for file in arquivos_csv:
         try:
-            df_parte = pd.read_csv(arquivo, sep=';', decimal=',', encoding='utf-8', on_bad_lines='warn')
-            lista_dfs_partes.append(df_parte)
+            df = pd.read_csv(file, encoding='utf-16', sep='\t', engine='python', on_bad_lines='warn', header=0)
+            df.columns = df.columns.str.strip()
+
+            if not df.empty:
+                for col in float_cols:
+                    if col in df.columns:
+                        df[col] = df[col].astype(str).str.replace(',', '.').astype(float)
+                # SUBSTITUA O LOOP ANTIGO POR ESTE AQUI:
+                for col in date_cols:
+                    if col in df.columns:
+                        # Tenta converter cada valor na coluna de data, lidando com nulos (NaN, NaT)
+                        # A mágica está no `parse(x, dayfirst=True)`
+                        df[col] = df[col].apply(
+                            lambda x: parse(str(x), dayfirst=True) if pd.notna(x) else pd.NaT
+                        )
+                all_dfs.append(df)
         except Exception as e:
-            print(f"Aviso: Não foi possível ler o arquivo {arquivo}. Erro: {e}")
+            print(f"Erro ao processar o arquivo de estoque {os.path.basename(file)}: {e}")
             continue
 
-    if not lista_dfs_partes:
+    if not all_dfs:
         print("Nenhum dado de estoque foi carregado com sucesso.")
         return pd.DataFrame()
 
-    df_consolidado = pd.concat(lista_dfs_partes, ignore_index=True)
-
-    # --- INÍCIO DA CORREÇÃO ---
-    # 1. Converte a coluna original 'DataVencimento' (sem espaço) para datetime.
-    df_consolidado['DataVencimento'] = pd.to_datetime(df_consolidado['DataVencimento'], format='%d/%m/%Y', errors='coerce')
-
-    # 2. Converte a data de referência para Timestamp do pandas e a normaliza (zera o tempo).
-    #    Esta linha corrige o erro 'AttributeError'.
-    data_ref_estoque = pd.Timestamp(data_recente).normalize()
-
-    # 3. Cria a coluna 'Situacao' com base na comparação das datas.
-    df_consolidado['Situacao'] = np.where(
-        df_consolidado['DataVencimento'] > data_ref_estoque,
-        'A vencer',
-        'Vencido'
-    )
-    # --- FIM DA CORREÇÃO ---
-
-    # 4. Agora, renomeia as colunas para o padrão esperado pelo resto do script (com espaços).
-    df_consolidado.rename(columns={
-        'DataVencimento': 'Data Vencimento',
-        'ValorPresente': 'Valor Presente',
-        'ValorNominal': 'Valor Nominal'
-    }, inplace=True)
-
-    # Converte colunas de valores numéricos
-    df_consolidado['Valor Presente'] = pd.to_numeric(df_consolidado['Valor Presente'], errors='coerce')
-    df_consolidado['Valor Nominal'] = pd.to_numeric(df_consolidado['Valor Nominal'], errors='coerce')
-
-    # Remove linhas onde a conversão de data ou valor falhou
-    df_consolidado.dropna(subset=['Data Vencimento', 'Valor Presente'], inplace=True)
-
-    print(f"Dados do novo estoque consolidados: {len(df_consolidado)} linhas.")
-    print("Distribuição de Status calculada:")
-    print(df_consolidado['Situacao'].value_counts())
-    
-    return df_consolidado
+    df_final = pd.concat(all_dfs, ignore_index=True)
+    print("Dados de estoque consolidados com sucesso.")
+    return df_final
 
 def obter_dados_bacen(codigo_bcb, data_inicio='28/03/2017', tentativas=3, espera=3):
-    """Busca uma série temporal da API do Banco Central do Brasil, com lógica de retentativa."""
+    """
+    Busca uma série temporal da API do Banco Central do Brasil, com lógica de retentativa.
+    """
     url = f'https://api.bcb.gov.br/dados/serie/bcdata.sgs.{codigo_bcb}/dados?formato=json&dataInicial={data_inicio}'
-
+    
     for tentativa in range(1, tentativas + 1):
         try:
             print(f"Tentando buscar dados do Bacen (Série {codigo_bcb}), tentativa {tentativa}/{tentativas}...")
@@ -201,9 +166,9 @@ def obter_dados_bacen(codigo_bcb, data_inicio='28/03/2017', tentativas=3, espera
                 time.sleep(espera)
             else:
                 print(f"ERRO FINAL: Não foi possível buscar dados do Bacen (Série {codigo_bcb}) após {tentativas} tentativas.")
-
+    
+    # Se todas as tentativas falharem, retorna um DataFrame vazio
     return pd.DataFrame()
-
 def preparar_df_retornos(df_rentabilidade, df_cota_com_cdi):
     """Cria o DataFrame de retornos diários a partir da 'variacaoDia' e adiciona o CDI."""
     df_retornos = df_rentabilidade.pivot_table(
@@ -227,7 +192,7 @@ def _render_mpl_table(data, ax, col_width=1.5, row_height=0.625, font_size=10):
     header_font_color = COLOR_PALETTE['header_text']
     edge_color = 'w'
     row_colors = ['#FFFFFF', '#FFFFFF']
-
+    
     ax.axis('off')
     mpl_table = ax.table(cellText=data.values, cellLoc='center', bbox=[0, 0, 1, 1],
                          colLabels=data.columns, loc='center', colLoc='center')
@@ -253,17 +218,23 @@ def _render_mpl_table(data, ax, col_width=1.5, row_height=0.625, font_size=10):
 
 def criar_tabela_performance(df_rentabilidade_processada, fundos_a_exibir, df_cota_base, benchmark='CDI'):
     """
-    Gera a tabela de performance com a lógica de comparação do benchmark (CDI) corrigida
-    para sempre usar o mesmo período de dias do fundo.
+    Gera a tabela de performance com a lógica de "Desde o Início" corrigida
+    para refletir o acumulado até o final de cada ano.
     """
-    # --- ETAPA 1: PREPARAR DADOS DIÁRIOS ---
+    # --- ETAPA 1: CALCULAR PERFORMANCE MENSAL ---
     df_calc = df_rentabilidade_processada[['data', 'nomeFundo', 'variacaoDia']].copy()
-    df_calc['retorno_diario'] = df_calc['variacaoDia'] / 100
+    df_calc['mes'] = df_calc['data'].dt.to_period('M')
+    df_calc['fator_diario'] = 1 + (df_calc['variacaoDia'] / 100)
     
+    fator_mensal = df_calc.groupby(['nomeFundo', 'mes'])['fator_diario'].prod()
+    perf_mensal_fundos = (fator_mensal - 1).unstack('nomeFundo').T
+
     cdi_disponivel = benchmark in df_cota_base.index
-    retornos_cdi_diarios = pd.Series(dtype=float)
+    perf_mensal_cdi = pd.Series(dtype=float)
     if cdi_disponivel:
-        retornos_cdi_diarios = df_cota_base.loc[benchmark].pct_change().dropna()
+        retornos_cdi = df_cota_base.loc[benchmark].pct_change().dropna()
+        perf_mensal_cdi = (retornos_cdi + 1).resample('M').prod() - 1
+        perf_mensal_cdi.index = perf_mensal_cdi.index.to_period('M')
     else:
         print(f"AVISO: Benchmark '{benchmark}' não encontrado. Tabela será gerada sem essa comparação.")
 
@@ -278,59 +249,64 @@ def criar_tabela_performance(df_rentabilidade_processada, fundos_a_exibir, df_co
 
     for year in years:
         for nome_fundo, nome_exibicao in fundos_a_exibir.items():
-            df_fundo_ano = df_calc[(df_calc['nomeFundo'] == nome_fundo) & (df_calc['data'].dt.year == year)]
-            if df_fundo_ano.empty:
+            if nome_fundo not in perf_mensal_fundos.index:
                 continue
 
             row_fundo = [year, nome_exibicao]
-            if cdi_disponivel:
-                row_pct_bench = [year, f"% {benchmark}"]
-
-            # --- CÁLCULO MENSAL CORRIGIDO ---
-            for month in range(1, 13):
-                df_fundo_mes = df_fundo_ano[df_fundo_ano['data'].dt.month == month]
-                
-                if df_fundo_mes.empty:
-                    row_fundo.append('-')
-                    if cdi_disponivel: row_pct_bench.append('-')
-                else:
-                    # Calcula o retorno do fundo para o mês (parcial ou completo)
-                    ret_fundo = (1 + df_fundo_mes['retorno_diario']).prod() - 1
-                    row_fundo.append(format_pct(ret_fundo))
-
-                    if cdi_disponivel:
-                        # Calcula o retorno do CDI nos mesmos dias do fundo
-                        datas_do_fundo_no_mes = df_fundo_mes['data']
-                        ret_bench = (1 + retornos_cdi_diarios.reindex(datas_do_fundo_no_mes).dropna()).prod() - 1
-                        pct_cdi = ret_fundo / ret_bench if ret_bench != 0 else pd.NA
-                        row_pct_bench.append(format_pct_of_bench(pct_cdi))
-
-            # --- CÁLCULO YTD (ANO) CORRIGIDO ---
-            ret_fundo_ano = (1 + df_fundo_ano['retorno_diario']).prod() - 1
-            ret_bench_ano = pd.NA
-            if cdi_disponivel:
-                datas_do_fundo_no_ano = df_fundo_ano['data']
-                ret_bench_ano = (1 + retornos_cdi_diarios.reindex(datas_do_fundo_no_ano).dropna()).prod() - 1
             
-            # --- CÁLCULO DESDE O INÍCIO CORRIGIDO ---
-            df_fundo_total = df_calc[(df_calc['nomeFundo'] == nome_fundo) & (df_calc['data'].dt.year <= year)]
-            ret_fundo_inicio = (1 + df_fundo_total['retorno_diario']).prod() - 1
+            # Rentabilidade YTD (Ano) - Esta parte já estava correta.
+            ret_fundo_ano = (perf_mensal_fundos.loc[nome_fundo][(perf_mensal_fundos.columns.year == year)] + 1).prod() - 1
+            
+            # --- INÍCIO DA CORREÇÃO: Rentabilidade Acumulada (Desde o Início ATÉ o final do ano) ---
+            # 1. Filtra os retornos mensais para incluir apenas os meses ATÉ o final do ano atual do loop.
+            retornos_ate_ano_corrente = perf_mensal_fundos.loc[nome_fundo][perf_mensal_fundos.columns.year <= year].dropna()
+            
+            # 2. Compõe (multiplica) os retornos filtrados para obter o acumulado daquele ano.
+            ret_fundo_inicio = (1 + retornos_ate_ano_corrente).prod() - 1
+            # --- FIM DA CORREÇÃO ---
+
+            # Cálculos do Benchmark (apenas se disponível)
+            ret_bench_ano = pd.NA
             ret_bench_inicio = pd.NA
             if cdi_disponivel:
-                datas_do_fundo_total = df_fundo_total['data']
-                ret_bench_inicio = (1 + retornos_cdi_diarios.reindex(datas_do_fundo_total).dropna()).prod() - 1
-            
-            # Adiciona os valores calculados na linha
+                row_pct_bench = [year, f"% {benchmark}"]
+                ret_bench_ano = (perf_mensal_cdi[perf_mensal_cdi.index.year == year] + 1).prod() - 1
+                
+                # Sincroniza o período do CDI com o do fundo (até o final do ano corrente)
+                retornos_cdi_periodo = perf_mensal_cdi.reindex(retornos_ate_ano_corrente.index).dropna()
+                ret_bench_inicio = (1 + retornos_cdi_periodo).prod() - 1
+
+            # Preenchimento dos meses
+            for month in range(1, 13):
+                mes_period = pd.Period(f'{year}-{month}', freq='M')
+                if mes_period in perf_mensal_fundos.columns and perf_mensal_fundos.columns.year[perf_mensal_fundos.columns.get_loc(mes_period)] == year:
+                    ret_fundo = perf_mensal_fundos.loc[nome_fundo, mes_period]
+                    row_fundo.append(format_pct(ret_fundo))
+                else:
+                    row_fundo.append('-')
+
             row_fundo.extend([format_pct(ret_fundo_ano), format_pct(ret_fundo_inicio)])
             all_rows.append(row_fundo)
-            
+
+            # Adiciona a linha de % CDI
             if cdi_disponivel:
-                pct_cdi_ano = ret_fundo_ano / ret_bench_ano if ret_bench_ano != 0 else pd.NA
-                pct_cdi_inicio = ret_fundo_inicio / ret_bench_inicio if ret_bench_inicio != 0 else pd.NA
+                for month in range(1, 13):
+                    mes_period = pd.Period(f'{year}-{month}', freq='M')
+                    if mes_period in perf_mensal_fundos.columns and perf_mensal_fundos.columns.year[perf_mensal_fundos.columns.get_loc(mes_period)] == year:
+                        ret_fundo = perf_mensal_fundos.loc[nome_fundo, mes_period]
+                        ret_bench = perf_mensal_cdi.get(mes_period, pd.NA)
+                        pct_cdi = ret_fundo / ret_bench if pd.notna(ret_fundo) and pd.notna(ret_bench) and ret_bench != 0 else '-'
+                        row_pct_bench.append(format_pct_of_bench(pct_cdi))
+                    else:
+                        row_pct_bench.append('-')
+                
+                pct_cdi_ano = ret_fundo_ano / ret_bench_ano if pd.notna(ret_bench_ano) and ret_bench_ano != 0 else '-'
+                pct_cdi_inicio = ret_fundo_inicio / ret_bench_inicio if pd.notna(ret_bench_inicio) and ret_bench_inicio != 0 else '-'
                 row_pct_bench.extend([format_pct_of_bench(pct_cdi_ano), format_pct_of_bench(pct_cdi_inicio)])
                 all_rows.append(row_pct_bench)
 
-    # --- ETAPA 3: RENDERIZAR E SALVAR A TABELA (sem alterações) ---
+    # --- ETAPA 3: RENDERIZAR E SALVAR A TABELA ---
+    # ... (o resto da função permanece igual)
     if not all_rows: return None
     
     table_cols = ['Ano', 'Cota', 'Jan', 'Fev', 'Mar', 'Abr', 'Maio', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez', 'YTD', 'Desde o\nInício']
@@ -353,7 +329,7 @@ def criar_tabela_performance(df_rentabilidade_processada, fundos_a_exibir, df_co
                 props.update({'weight': 'bold', 'color': header_font_color}); cell.set_facecolor(header_color)
             else:
                 props.update({'color': font_color})
-                is_pct_cdi_row = cdi_disponivel and (k[0] % 2 == 0)
+                is_pct_cdi_row = cdi_disponivel and (k[0] % 2 == 0) # Ajuste para layout correto
                 if is_pct_cdi_row: cell.set_facecolor('#F0F0F0')
                 else: cell.set_facecolor('#FFFFFF')
             if k[1] <= 0:
@@ -365,45 +341,44 @@ def criar_tabela_performance(df_rentabilidade_processada, fundos_a_exibir, df_co
     fig, ax = plt.subplots(figsize=(12, len(all_rows) * 0.35))
     render_mpl_table_final(df_table, ax)
     
-    # Usa o primeiro fundo da lista para nomear o arquivo
-    primeiro_fundo_nome = list(fundos_a_exibir.keys())[0].replace(' ', '_')
-    path_tabela = os.path.join(PASTA_SAIDA_IMAGENS, f"tabela_rentabilidade_{primeiro_fundo_nome}.png")
+    path_tabela = os.path.join(PASTA_SAIDA_IMAGENS, f"tabela_rentabilidade_{list(fundos_a_exibir.keys())[0].replace(' ', '_')}.png")
     fig.savefig(path_tabela, dpi=300, bbox_inches='tight', pad_inches=0.1)
     plt.close(fig)
-    print(f"Tabela de rentabilidade (lógica do CDI corrigida) salva em: {path_tabela}")
+    print(f"Tabela de rentabilidade (cálculo acumulado por ano corrigido) salva em: {path_tabela}")
     return path_tabela
+
 def plotar_graficos_rentabilidade(df_cota, df_patr, df_retornos, fundos_a_exibir, benchmark='CDI'):
     """
     Cria e salva todos os gráficos de performance.
-    MODIFICADO: Gráfico de PL agora mostra apenas a cota Sênior.
+    MODIFICADO: Agora lida com a ausência de dados do benchmark (CDI).
     """
     fundo_alvo_principal = list(fundos_a_exibir.keys())[0]
     nome_exib_principal = list(fundos_a_exibir.values())[0]
     nome_arquivo_limpo = fundo_alvo_principal.replace(' ', '_')
 
-    # --- 1. Gráfico de Retorno Acumulado (sem alterações) ---
+    # --- 1. Gráfico de Retorno Acumulado ---
     fig, ax = plt.subplots(figsize=(12, 6))
     
     inception_dates = []
-    # Garante que fundos_a_exibir seja sempre uma lista, mesmo com um item
-    fundos_para_loop = list(fundos_a_exibir.keys())
-    for f in fundos_para_loop:
+    for f in fundos_a_exibir.keys():
         first_valid_index = df_retornos[f].dropna().index.min()
         inception_dates.append(first_valid_index)
     common_start_date = max(inception_dates)
     
-    # Usa a cor primária, já que agora é só um fundo
-    cor_fundo = COLOR_PALETTE['primary_light']
+    cores_fundos = [COLOR_PALETTE['primary_light'], COLOR_PALETTE['primary_dark']]
 
-    for fundo_nome, fundo_label in fundos_a_exibir.items():
+    for i, (fundo_nome, fundo_label) in enumerate(fundos_a_exibir.items()):
         retornos_diarios_full = df_retornos[fundo_nome].dropna()
         retornos_diarios = retornos_diarios_full[retornos_diarios_full.index >= common_start_date]
         if retornos_diarios.empty: continue
         df_fund_evol_norm = (1 + retornos_diarios).cumprod() * 100
-        ax.plot(df_fund_evol_norm, color=cor_fundo, lw=2.5, label=fundo_label)
+        cor = cores_fundos[i % len(cores_fundos)]
+        ax.plot(df_fund_evol_norm, color=cor, lw=2.5, label=fundo_label)
         ax.text(df_fund_evol_norm.index[-1], df_fund_evol_norm.iloc[-1], f' {df_fund_evol_norm.iloc[-1]:.2f}', 
-                color=cor_fundo, fontsize=12, va='center')
+                color=cor, fontsize=12, va='center')
 
+    # --- MODIFICAÇÃO PRINCIPAL AQUI ---
+    # Plota o Benchmark (CDI) apenas se ele estiver presente no DataFrame
     if benchmark in df_retornos.columns:
         retornos_cdi = df_retornos[benchmark][df_retornos.index >= common_start_date].dropna()
         if not retornos_cdi.empty:
@@ -412,8 +387,9 @@ def plotar_graficos_rentabilidade(df_cota, df_patr, df_retornos, fundos_a_exibir
             ax.text(df_bench_evol_norm.index[-1], df_bench_evol_norm.iloc[-1], f' {df_bench_evol_norm.iloc[-1]:.2f}', 
                     color='k', alpha=0.8, fontsize=12, va='center')
     else:
-        print("AVISO: Dados do benchmark (CDI) não encontrados para o gráfico de retorno.")
+        print("AVISO: Dados do benchmark (CDI) não encontrados. O gráfico será gerado sem a linha do benchmark.")
 
+    # Formatação do Gráfico
     ax.spines[['top', 'right']].set_visible(False)
     ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.0f'))
     ax.grid(axis='y', linestyle='--', alpha=0.7)
@@ -422,15 +398,16 @@ def plotar_graficos_rentabilidade(df_cota, df_patr, df_retornos, fundos_a_exibir
     plt.tight_layout()
     path_retorno = os.path.join(PASTA_SAIDA_IMAGENS, f"grafico_retorno_{nome_arquivo_limpo}.png")
     fig.savefig(path_retorno, dpi=300, bbox_inches='tight'); plt.close(fig)
-    print(f"Gráfico de retorno salvo em: {path_retorno}")
+    print(f"Gráfico de retorno (início comum) salvo em: {path_retorno}")
 
-    # --- 2. Gráfico de Volatilidade (sem alterações) ---
+    # ... (o resto da função para Volatilidade, Drawdown e PL permanece igual)
+    # --- 2. Gráfico de Volatilidade (sem alterações, continua sendo gerado) ---
     fig, ax = plt.subplots(figsize=(12, 6))
     window=22
     ret_fundo = df_cota.loc[fundo_alvo_principal].pct_change()
     vol_fundo = ret_fundo.rolling(window=window).std() * np.sqrt(252)
     ax.plot(vol_fundo, color=COLOR_PALETTE['primary_light'], lw=2, label=nome_exib_principal)
-    if benchmark in df_cota.index:
+    if benchmark in df_cota.index: # Adiciona verificação aqui também
         ret_bench = df_cota.loc[benchmark].pct_change()
         vol_bench = ret_bench.rolling(window=window).std() * np.sqrt(252)
         ax.plot(vol_bench, color='k', linestyle='--', alpha=0.7, lw=2, label=benchmark)
@@ -442,7 +419,7 @@ def plotar_graficos_rentabilidade(df_cota, df_patr, df_retornos, fundos_a_exibir
     fig.savefig(path_vol, dpi=300, bbox_inches='tight'); plt.close(fig)
     print(f"Gráfico de volatilidade salvo em: {path_vol}")
 
-    # --- 3. Gráfico de Drawdown (sem alterações) ---
+    # --- 3. Gráfico de Drawdown (sem alterações, continua sendo gerado) ---
     fig, ax = plt.subplots(figsize=(12, 6))
     df_fund_dd = df_cota.loc[fundo_alvo_principal].dropna()
     daily_dd = df_fund_dd / df_fund_dd.cummax() - 1.0
@@ -455,77 +432,81 @@ def plotar_graficos_rentabilidade(df_cota, df_patr, df_retornos, fundos_a_exibir
     fig.savefig(path_dd, dpi=300, bbox_inches='tight'); plt.close(fig)
     print(f"Gráfico de drawdown salvo em: {path_dd}")
 
-    # ### INÍCIO DA ALTERAÇÃO ###
-    # --- 4. Gráfico de Evolução do PL (Modificado para linha única) ---
+    # --- 4. Gráfico de Evolução do PL (sem alterações) ---
     fig, ax = plt.subplots(figsize=(12, 6))
-    
-    # Seleciona apenas o PL do fundo principal (Sênior)
-    df_plot_pl = df_patr.loc[fundo_alvo_principal].dropna()
-    
-    # Plota como um gráfico de linha/área em vez de empilhado
-    ax.plot(df_plot_pl.index, df_plot_pl.values, color=COLOR_PALETTE['primary_light'], lw=2.5, label=nome_exib_principal)
-    ax.fill_between(df_plot_pl.index, df_plot_pl.values, 0, color=COLOR_PALETTE['primary_light'], alpha=0.3)
-    
+    fundos_originais = list(fundos_a_exibir.keys())
+    df_plot_pl = df_patr.loc[fundos_originais].T.dropna(how='all').fillna(0)
+    df_plot_pl = df_plot_pl[['FIDC FCT II', 'FIDC FCT II SR2']]
+    cores_pl = [COLOR_PALETTE['primary_dark'], COLOR_PALETTE['primary_light']]
+    ax.stackplot(df_plot_pl.index, df_plot_pl.T.values,
+                labels=['Subordinada', 'Sênior'],
+                colors=cores_pl, alpha=0.8)
     ax.spines[['top', 'right']].set_visible(False)
     ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, p: f'R$ {x/1e6:.1f}M'))
     ax.grid(axis='y', linestyle='--', alpha=0.7)
-    ax.set_title(f'Evolução do Patrimônio Líquido (PL) - {nome_exib_principal}', fontsize=16, pad=20)
+    ax.set_title(f'Evolução do Patrimônio Líquido (PL)', fontsize=16, pad=20)
     ax.legend(loc='upper left', frameon=False, fontsize=12)
-    
-    # Pega o último valor do PL para o rótulo
-    pl_final = df_plot_pl.iloc[-1]
-    ax.text(df_plot_pl.index[-1], pl_final, f' R$ {pl_final/1e6:.2f}M',
+    pl_total_final = df_plot_pl.iloc[-1].sum()
+    ax.text(df_plot_pl.index[-1], pl_total_final, f' Total R$ {pl_total_final/1e6:.2f}M',
             color=COLOR_PALETTE['secondary'], fontsize=12, va='center', ha='left')
-            
     plt.tight_layout()
     path_pl = os.path.join(PASTA_SAIDA_IMAGENS, f"grafico_pl_{nome_arquivo_limpo}.png")
     fig.savefig(path_pl, dpi=300, bbox_inches='tight'); plt.close(fig)
-    print(f"Gráfico de PL (apenas Sênior) salvo em: {path_pl}")
-    # ### FIM DA ALTERAÇÃO ###
+    print(f"Gráfico de PL empilhado salvo em: {path_pl}")
     
     return {
         'retorno': path_retorno, 'volatilidade': path_vol,
         'drawdown': path_dd, 'pl': path_pl
     }
-# ### ALTERAÇÃO ### - Função principal de plotagem de estoque.
+# CÉLULA 3
+
 def plotar_graficos_estoque(df_estoque, data_referencia):
+    
     """Cria e salva todos os gráficos relacionados ao estoque."""
     if df_estoque.empty:
         print("DataFrame de estoque vazio. Pulando geração de gráficos de estoque.")
         return {}
-
+    
     print("\n--- Gerando imagens de Estoque ---")
-    # ### ALTERAÇÃO ### - Usa a coluna 'Situacao' do novo DataFrame.
-    df_avencer = df_estoque[df_estoque['Situacao'] == 'A vencer'].copy()
+    df_avencer = df_estoque[df_estoque['Status'] == 'A vencer'].copy()
     paths = {}
-
+    
     # Gerar e salvar cada gráfico de estoque
     paths['venc_mensal'] = plotar_vencimento_mensal(df_avencer, 'Valor Presente', 'VCTO_MES', data_referencia)
     paths['venc_anual'] = plotar_vencimento_anual(df_avencer, 'Valor Presente', 'VCTO_ANO')
-    # ### ALTERAÇÃO ### - Gráficos de UF e CAPAG removidos.
+    paths['conc_uf'] = plotar_concentracao_uf(df_avencer, 'Valor Presente', 'UF')
+    paths['dist_capag'] = plotar_distribuicao_capag(df_estoque, 'CAPAG', 'Valor Presente')
+    # MODIFICADO: Passa a data_referencia para a função de aging
     paths['aging_vencidos'] = plotar_aging_com_acumulado(df_estoque, data_referencia, 'Valor Presente')
-    # ### ALTERAÇÃO ### - Usa a coluna 'SacadoCnpjCpf'.
-    paths['conc_cumulativa_sacado'] = plotar_concentracao_cumulativa_sacado(df_avencer, 'Valor Presente', 'SacadoCnpjCpf')
-
+    paths['conc_cumulativa_sacado'] = plotar_concentracao_cumulativa_sacado(df_avencer, 'Valor Presente', 'CPF Cliente')
     print("\nGráficos de estoque gerados com sucesso.")
     return paths
 
 def plotar_vencimento_mensal(df_aberto, col_valor, col_vcto, data_referencia, cutoff=10):
-    """Gera e salva o gráfico de vencimento mensal a partir da data de referência."""
+    """
+    Gera e salva o gráfico de vencimento mensal, focado em recebíveis
+    com vencimento a partir da data de referência do relatório.
+    """
+    # --- MUDANÇA PRINCIPAL: USA A DATA DE REFERÊNCIA EM VEZ DE "HOJE" ---
     data_filtro = pd.Timestamp(data_referencia).normalize()
+    
+    # Filtra o DataFrame para incluir apenas vencimentos a partir da data de referência.
     df_futuro = df_aberto[df_aberto['Data Vencimento'] >= data_filtro].copy()
+    # ---------------------------------------------------------------------
 
     if df_futuro.empty:
-        print("Não há dados de vencimentos futuros para gerar o gráfico mensal.")
+        print("Não há dados de vencimentos futuros (ref. ao relatório) para gerar o gráfico mensal.")
         return None
 
+    # O resto da função continua exatamente igual
     df_futuro[col_vcto] = df_futuro['Data Vencimento'].dt.strftime('%Y-%m')
     df2 = df_futuro.groupby(col_vcto)[col_valor].sum()
     df3 = (df2 / df2.sum()).cumsum()
     df2 = df2[:cutoff]
     df3 = df3[:cutoff]
-
-    ymin1, ymax1 = 0, df2.max() * 2
+    
+    ymin1 = 0
+    ymax1 = df2.max() * 2
     ymax2 = 1.3
     ymin2 = df3.min() * 2.5 - 1.5 * ymax2
 
@@ -538,10 +519,12 @@ def plotar_vencimento_mensal(df_aberto, col_valor, col_vcto, data_referencia, cu
     month_map = {'01':'jan','02':'fev','03':'mar','04':'abr','05':'mai','06':'jun','07':'jul','08':'ago','09':'set','10':'out','11':'nov','12':'dez'}
     ax.set_xticks(df2.index)
     ax.set_xticklabels([f"{month_map[x[-2:]]}/{x[2:4]}" for x in df2.index])
-    ax.set_ylim(ymin1, ymax1); ax2.set_ylim(ymin2, ymax2)
+    ax.set_ylim(ymin1, ymax1)
+    ax2.set_ylim(ymin2, ymax2)
     ax.set_yticks([]); ax2.set_yticks([])
     ax.tick_params(bottom=False)
-    ax.set_frame_on(False); ax2.spines[:].set_visible(False)
+    ax.set_frame_on(False)
+    ax2.spines[:].set_visible(False)
 
     max_height = max([bar.get_height() for bar in bars])
     for i, bar in enumerate(bars):
@@ -556,11 +539,11 @@ def plotar_vencimento_mensal(df_aberto, col_valor, col_vcto, data_referencia, cu
     path_saida = os.path.join(PASTA_SAIDA_IMAGENS, "vencimento_mensal.png")
     fig.savefig(path_saida, bbox_inches='tight')
     plt.close(fig)
-    print(f"Gráfico de vencimento mensal salvo em: {path_saida}")
+    print(f"Gráfico de vencimento mensal (baseado na data do relatório) salvo em: {path_saida}")
     return path_saida
 
 def plotar_vencimento_anual(df_aberto, col_valor, col_vcto):
-    """Gera e salva o gráfico de vencimento anual."""
+    """Gera e salva o gráfico de vencimento anual com a estética original."""
     df_aberto = df_aberto.copy()
     df_aberto[col_vcto] = df_aberto['Data Vencimento'].dt.year
     df2 = df_aberto.groupby(col_vcto)[col_valor].sum()
@@ -570,21 +553,28 @@ def plotar_vencimento_anual(df_aberto, col_valor, col_vcto):
         print("Não há dados para gerar o gráfico de vencimento anual.")
         return None
 
-    ymin1, ymax1 = 0, df2.max() * 2
+    # Restaura a lógica original de limites dinâmicos para espaçamento visual
+    ymin1 = 0
+    ymax1 = df2.max() * 2
     ymax2 = 1.15
     ymin2 = df3.min() * 2.5 - 1.5 * ymax2
 
     fig, ax = plt.subplots(figsize=(8, 4.5))
     ax2 = ax.twinx()
-
+    
+    # Restaura o np.clip para garantir que barras pequenas sejam visíveis
     bars = ax.bar(df2.index, np.clip(df2.values, 0.01 * df2.max(), df2.max()), color=COLOR_PALETTE['primary_dark'])
     ax2.plot(df3.index, df3.values, color=COLOR_PALETTE['secondary'], lw=2, marker='o')
-
+    
+    # Lógica de formatação dos eixos e rótulos do script original
     ax.set_xticks(df2.index.tolist())
-    ax.set_ylim(ymin1, ymax1); ax2.set_ylim(ymin2, ymax2)
-    ax.set_yticks([]); ax2.set_yticks([])
+    ax.set_ylim(ymin1, ymax1)
+    ax2.set_ylim(ymin2, ymax2)
+    ax.set_yticks([])
+    ax2.set_yticks([])
     ax.tick_params(bottom=False)
-    ax.set_frame_on(False); ax2.spines[:].set_visible(False)
+    ax.set_frame_on(False)
+    ax2.spines[:].set_visible(False)
 
     max_height = max([bar.get_height() for bar in bars])
     for i, bar in enumerate(bars):
@@ -599,13 +589,66 @@ def plotar_vencimento_anual(df_aberto, col_valor, col_vcto):
     path_saida = os.path.join(PASTA_SAIDA_IMAGENS, "vencimento_anual.png")
     fig.savefig(path_saida, bbox_inches='tight')
     plt.close(fig)
-    print(f"Gráfico de vencimento anual salvo em: {path_saida}")
+    print(f"Gráfico de vencimento anual (estilo corrigido) salvo em: {path_saida}")
     return path_saida
 
-def plotar_concentracao_cumulativa_sacado(df_aberto, col_valor='Valor Presente', col_class='SacadoCnpjCpf'):
-    """Gera um gráfico da concentração CUMULativa de valor por devedores."""
-    df_agrupado = df_aberto.groupby(col_class)[col_valor].sum().sort_values(ascending=False)
+def plotar_concentracao_uf(df_aberto, col_valor, col_class='UF', cutoff=15):
+    """Gera e salva o gráfico de concentração por UF."""
+    df11 = df_aberto.groupby(col_class)[col_valor].sum().sort_values(ascending=False)
+    ncut = min(len(df11), cutoff)
+    
+    if ncut >= cutoff:
+        x = df11[:cutoff].index.tolist() + ['Outros']
+        y = list(df11[:cutoff].values) + [df11.iloc[cutoff:].sum()]
+    else:
+        x = df11.index.tolist()
+        y = list(df11.values)
+        
+    fig, ax = plt.subplots(figsize=(6, 4))
+    bars = ax.barh(x, y, color=COLOR_PALETTE['primary_dark'])
+    plt.gca().invert_yaxis()
+    ax.set_xticks([])
+    ax.tick_params(left=False, bottom=False)
+    ax.set_frame_on(False)
 
+    for i, bar in enumerate(bars):
+        value = y[i] / 1000
+        ax.text(bar.get_width() * 1.01, bar.get_y() + bar.get_height()/2, f'{value:,.0f}'.replace(',', '.'), va='center', ha='left')
+
+    path_saida = os.path.join(PASTA_SAIDA_IMAGENS, "concentracao_uf.png")
+    fig.savefig(path_saida, bbox_inches='tight')
+    plt.close(fig)
+    print(f"Gráfico de concentração por UF salvo em: {path_saida}")
+    return path_saida
+
+def plotar_distribuicao_capag(df_in, class_col, col_valor):
+    """Gera e salva o gráfico de distribuição por CAPAG."""
+    df_capag = df_in.dropna(subset=[class_col]).groupby(class_col)[col_valor].sum()
+    fig, ax = plt.subplots(figsize=(8, 4.5))
+    bars = ax.bar(df_capag.index, df_capag.values, color=COLOR_PALETTE['primary_dark'])
+
+    ax.set_xticks(df_capag.index.tolist())
+    ax.set_yticks([])
+    ax.tick_params(bottom=False)
+    ax.set_frame_on(False)
+
+    for i, bar in enumerate(bars):
+        value = df_capag.values[i] / 1000
+        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() * 1.05, f'{value:,.0f}'.replace(',', '.'), ha='center')
+
+    path_saida = os.path.join(PASTA_SAIDA_IMAGENS, "distribuicao_capag.png")
+    fig.savefig(path_saida, bbox_inches='tight')
+    plt.close(fig)
+    print(f"Gráfico de distribuição por CAPAG salvo em: {path_saida}")
+    return path_saida
+
+def plotar_concentracao_cumulativa_sacado(df_aberto, col_valor='Valor Presente', col_class='CPF Cliente'):
+    """
+    Gera um gráfico de barras horizontal mostrando a concentração CUMULATIVA de valor
+    em faixas de devedores (Top 10, Top 20, Top 50, etc.), como na imagem de exemplo.
+    """
+    df_agrupado = df_aberto.groupby(col_class)[col_valor].sum().sort_values(ascending=False)
+    
     if df_agrupado.empty:
         print(f"Não há dados para gerar o gráfico de concentração cumulativa por '{col_class}'.")
         return None
@@ -613,87 +656,104 @@ def plotar_concentracao_cumulativa_sacado(df_aberto, col_valor='Valor Presente',
     valor_total = df_agrupado.sum()
     num_sacados = len(df_agrupado)
 
+    # Define as faixas cumulativas, como na imagem
     bins = [10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000]
+    
     resultados = {}
+    # Calcula o percentual para cada faixa
     for n in bins:
         if n < num_sacados:
             soma_top_n = df_agrupado.iloc[0:n].sum()
             pct_top_n = (soma_top_n / valor_total) * 100
             resultados[f'{n} maiores'] = pct_top_n
-
+            
+    # Adiciona a linha final com o total de sacados
     resultados[f'{num_sacados} maiores'] = 100.0
+    
     df_plot = pd.Series(resultados)
-
-    fig, ax = plt.subplots(figsize=(8, 4.5)) # Mantém o mesmo figsize do gráfico de Aging
+    
+    # --- PLOTAGEM ---
+    fig, ax = plt.subplots(figsize=(8, 4.5))
     bars = ax.barh(df_plot.index, df_plot.values, color=COLOR_PALETTE['primary_dark'])
-
+    
+    # Inverte o eixo para ter o '10 maiores' no topo
     ax.invert_yaxis()
+    
+    # Formatação dos eixos
     ax.set_xticks([])
     ax.set_frame_on(False)
-    ax.tick_params(left=False)
+    ax.tick_params(left=False) # Remove os tracinhos do eixo Y
     
-    # ### INÍCIO DA ALTERAÇÃO ###
-    # 1. Fixa o limite do eixo X para padronizar o tamanho da imagem salva
-    #    Isso garante espaço para os rótulos sem redimensionar a imagem.
-    ax.set_xlim(0, 115) 
-
     # Adiciona os rótulos de percentual no final das barras
     for bar in bars:
         width = bar.get_width()
-        ax.text(width + 2, bar.get_y() + bar.get_height()/2, f'{width:.0f}%',
+        ax.text(width + 1, bar.get_y() + bar.get_height()/2, f'{width:.0f}%', 
                 va='center', ha='left', fontsize=9)
 
-    # 2. Remove o título da imagem, pois ele já existe no relatório.
-    # ax.set_title("Concentração Cumulativa por Sacado", fontsize=12) # Linha removida
-    # ### FIM DA ALTERAÇÃO ###
-
+    ax.set_title("Concentração Cumulativa por Sacado", fontsize=12)
+    
     path_saida = os.path.join(PASTA_SAIDA_IMAGENS, "concentracao_cumulativa_sacado.png")
     fig.savefig(path_saida, bbox_inches='tight')
     plt.close(fig)
-    print(f"Gráfico de concentração cumulativa por sacado (sem título e com tamanho ajustado) salvo em: {path_saida}")
+    print(f"Gráfico de concentração cumulativa por sacado salvo em: {path_saida}")
     return path_saida
 
 
+# CÉLULA 3
+
 def plotar_aging_com_acumulado(df_estoque, data_referencia, col_valor='Valor Presente'):
-    """Gera um gráfico de Aging com linha de percentual acumulado."""
-    df_vencidos = df_estoque[df_estoque['Situacao'] == 'Vencido'].copy()
+    """
+    Gera um gráfico de Aging com a linha de percentual posicionada dinamicamente
+    acima das barras, com visual limpo e preciso.
+    """
+    df_vencidos = df_estoque[df_estoque['Status'] == 'Vencido'].copy()
 
     if df_vencidos.empty:
         print("Não há dados de carteira vencida para gerar o gráfico de Aging.")
         return None
 
+    # Usa a data de referência do relatório
     data_filtro = pd.Timestamp(data_referencia).normalize()
     df_vencidos['dias_atraso'] = (data_filtro - df_vencidos['Data Vencimento']).dt.days
 
     bins = [-1, 14, 30, 60, 90, 120, 150, 180, np.inf]
     labels = ['0-14 D', '15-30 D', '31-60 D', '61-90 D', '91-120 D', '121-150 D', '151-180 D', '180+ D']
     df_vencidos['Faixa Atraso'] = pd.cut(df_vencidos['dias_atraso'], bins=bins, labels=labels, right=True)
-
+    
     df_aging = df_vencidos.groupby('Faixa Atraso', observed=False)[col_valor].sum()
     total_em_atraso = df_aging.sum()
 
     if total_em_atraso == 0:
         print("Valor total em atraso é zero. Pulando gráfico de Aging.")
         return None
-
+        
+    # --- AJUSTE NA PREPARAÇÃO DOS DADOS ---
+    # 1. Dados para a LINHA (não inclui a barra 'Total')
     df_aging_pct_line = (df_aging.cumsum() / total_em_atraso)
+    
+    # 2. Dados para as BARRAS (inclui a barra 'Total')
     df_aging_bars = df_aging.copy()
     df_aging_bars['Total'] = total_em_atraso
 
+    # --- INÍCIO DA LÓGICA DO GRÁFICO ---
     fig, ax = plt.subplots(figsize=(8, 4.5))
     ax2 = ax.twinx()
 
+    # Gráfico de Barras (usa os dados com 'Total')
     bars = ax.bar(df_aging_bars.index, df_aging_bars.values, color=COLOR_PALETTE['primary_dark'], width=0.6)
     bars[-1].set_color(COLOR_PALETTE['secondary'])
-
+    
+    # --- LÓGICA DE POSICIONAMENTO DA LINHA RESTAURADA ---
     ax_ymax = df_aging_bars.max() * 1.40
     ax.set_ylim(0, ax_ymax)
 
     max_bar_height_ratio = (df_aging.max() / ax_ymax) * 1.15
+    
     line_visual_start = min(max_bar_height_ratio + 0.1, 0.7)
     line_visual_end = 0.95
+    
     line_data_start = df_aging_pct_line.iloc[0] if not df_aging_pct_line.empty else 0
-    line_data_end = 1.0
+    line_data_end = 1.0 # O conceito de 100% como teto
 
     if abs(line_visual_end - line_visual_start) < 0.01:
         line_visual_start, line_visual_end = 0.6, 0.95
@@ -701,45 +761,56 @@ def plotar_aging_com_acumulado(df_estoque, data_referencia, col_valor='Valor Pre
     y2_range = (line_data_end - line_data_start) / (line_visual_end - line_visual_start)
     y2_min = line_data_start - (y2_range * line_visual_start)
     y2_max = y2_min + y2_range
+    
     ax2.set_ylim(y2_min, y2_max)
-
+    
+    # Gráfico de Linha (usa os dados SEM 'Total')
     ax2.plot(df_aging_pct_line.index, df_aging_pct_line.values, color=COLOR_PALETTE['secondary'], marker='o', lw=2)
 
+    # --- AJUSTES FINAIS DE FORMATAÇÃO ---
+    # Formatação do eixo das barras (ax)
     ax.set_yticks([])
     ax.set_frame_on(False)
-
+    
+    # Rótulos das barras (APENAS NÚMEROS)
     offset_barras = ax.get_ylim()[1] * 0.02
     for bar in bars:
         height = bar.get_height()
-        # ### INÍCIO DA ALTERAÇÃO ###
-        # Altera a unidade de Milhões (1e6) para Milhares (1e3) e formata como inteiro.
-        label_text = f'{height/1e3:,.0f}'.replace(',', '.')
-        # ### FIM DA ALTERAÇÃO ###
+        label_text = f'{height/1e6:.2f}'.replace('.', ',')
         ax.text(bar.get_x() + bar.get_width() / 2, height + offset_barras, label_text,
                 ha='center', va='bottom', fontsize=9, color='#333333')
 
+    # Formatação do eixo da linha (ax2)
     ax2.spines[:].set_visible(False)
-    ax2.set_yticks([])
-
+    ax2.set_yticks([]) # REMOVE A GRADE DA DIREITA (rótulos de %)
+    
+    # Rótulos da linha de percentual (não precisa mais da condição de 'Total')
     y2_axis_range = ax2.get_ylim()[1] - ax2.get_ylim()[0]
     label_offset = y2_axis_range * 0.05
     for i, pct in enumerate(df_aging_pct_line):
         ax2.text(i, pct + label_offset, f'{pct:.0%}', ha='center', fontsize=9, color=COLOR_PALETTE['secondary'])
-
+    
     path_saida = os.path.join(PASTA_SAIDA_IMAGENS, "aging_com_acumulado.png")
     fig.savefig(path_saida, bbox_inches='tight')
     plt.close(fig)
-    print(f"Gráfico de Aging (em milhares) salvo em: {path_saida}")
+    print(f"Gráfico de Aging (versão final) salvo em: {path_saida}")
     return path_saida
 # %%
 # =============================================================================
 # CÉLULA 4: FUNÇÕES DE MONTAGEM DO RELATÓRIO (DOCX)
 # =============================================================================
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 
+### 1. FUNÇÃO DE BORDA ATUALIZADA (ADICIONA LINHA EM CIMA E EMBAIXO) ###
 def set_paragraph_horizontal_border(paragraph, color="76C6C5", size="4", space="1"):
-    """Adiciona bordas na parte SUPERIOR e INFERIOR de um parágrafo."""
+    """
+    Adiciona bordas na parte SUPERIOR e INFERIOR de um parágrafo.
+    """
     pPr = paragraph._p.get_or_add_pPr()
     pBdr = OxmlElement('w:pBdr')
+    
+    # Loop para criar a borda 'top' (superior) e 'bottom' (inferior)
     for border_side in ['top', 'bottom']:
         border_element = OxmlElement(f'w:{border_side}')
         border_element.set(qn('w:val'), 'single')
@@ -747,6 +818,7 @@ def set_paragraph_horizontal_border(paragraph, color="76C6C5", size="4", space="
         border_element.set(qn('w:space'), space)
         border_element.set(qn('w:color'), color)
         pBdr.append(border_element)
+        
     pPr.append(pBdr)
 
 def configurar_cabecalho_rodape(doc, nome_relatorio, data_referencia, path_logo):
@@ -754,12 +826,14 @@ def configurar_cabecalho_rodape(doc, nome_relatorio, data_referencia, path_logo)
     section = doc.sections[0]
     section.top_margin, section.bottom_margin = Cm(1), Cm(1)
     section.left_margin, section.right_margin = Cm(1.6), Cm(1)
-
+    
     header = section.header
     header_table = header.tables[0] if header.tables else header.add_table(rows=1, cols=2, width=Cm(18))
-
+    
+    # (O resto desta função permanece o mesmo)
     cell_left = header_table.cell(0, 0)
-    p_left = cell_left.paragraphs[0]; p_left.text = ""
+    p_left = cell_left.paragraphs[0]
+    p_left.text = ""
     run_name = p_left.add_run(nome_relatorio.upper())
     run_name.font.name = "Gill Sans MT"
     run_name.font.size, run_name.bold = Pt(14), True
@@ -770,14 +844,14 @@ def configurar_cabecalho_rodape(doc, nome_relatorio, data_referencia, path_logo)
     run_month = p_left.add_run(data_formatada)
     run_month.font.name, run_month.font.size, run_month.italic = "Arial", Pt(12), True
     run_month.font.color.rgb = RGBColor(38, 38, 38)
-
     cell_right = header_table.cell(0, 1)
-    p_right = cell_right.paragraphs[0]; p_right.text = ""
+    p_right = cell_right.paragraphs[0]
+    p_right.text = ""
     p_right.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     p_right.add_run().add_picture(path_logo, width=Cm(4.93))
 
 def montar_corpo_relatorio(doc, paths_imagens):
-    """Adiciona a tabela e os gráficos ao corpo do documento."""
+    """Adiciona a tabela e os gráficos ao corpo do documento (VERSÃO CORRIGIDA)."""
     
     def add_section_title(cell, title, subtitle=""):
         p = cell.add_paragraph()
@@ -793,38 +867,40 @@ def montar_corpo_relatorio(doc, paths_imagens):
             run_sub.font.name = "Gill Sans MT"
             run_sub.font.size = Pt(8)
             run_sub.font.color.rgb = RGBColor(89, 89, 89)
-        
-        set_paragraph_horizontal_border(p, color="76C6C5", space="2")
+            
+        set_paragraph_horizontal_border(p, color="E2EEF0", space="2")
 
     # Tabela de Rentabilidade
     title_p = doc.add_paragraph()
     title_p.paragraph_format.space_before = Pt(12)
     run = title_p.add_run("\tRentabilidade Mensal")
     run.font.name, run.font.size, run.bold = "Gill Sans MT", Pt(11), False
-    set_paragraph_horizontal_border(title_p, color="76C6C5", space="4")
+    set_paragraph_horizontal_border(title_p, color="E2EEF0", space="4")
     
+    # Adiciona a imagem da tabela de performance, se ela existir
     if paths_imagens.get('tabela_perf') and os.path.exists(paths_imagens['tabela_perf']):
         doc.add_picture(paths_imagens['tabela_perf'], width=Cm(17.8))
 
+
     # Tabela de Gráficos
-    graphs_table = doc.add_table(rows=3, cols=2)
+    graphs_table = doc.add_table(rows=4, cols=2)
     graphs_table.autofit = False
     for col in graphs_table.columns:
         col.width = Cm(8.9)
     img_width = Cm(8.5)
 
     mapa_graficos = {
-        (0, 0): ("Retorno Acumulado", "", 'retorno'),
-        (0, 1): ("Evolução do Patrimônio Líquido (PL)", "(R$ MM)", 'pl'),
-        (1, 0): ("Vencimento Mensal", "(R$’000 e % acumulado)", 'venc_mensal'),
-        (1, 1): ("Vencimento Anual", "(R$’000 e % acumulado)", 'venc_anual'),
-        (2, 0): ("Concentração Cumulativa por Sacado", "(%)", 'conc_cumulativa_sacado'),
-        # ### INÍCIO DA ALTERAÇÃO ###
-        # Altera a unidade no subtítulo de R$ MM para R$ '000.
-        (2, 1): ("Aging da Carteira Vencida", "(R$’000 e % acumulado)", 'aging_vencidos'),
-        # ### FIM DA ALTERAÇÃO ###
-    }
-    
+            (0, 0): ("Retorno Acumulado", "", 'retorno'),
+            (0, 1): ("Evolução do Patrimônio Líquido (PL)", "(R$ MM)", 'pl'),
+            (1, 0): ("Vencimento Mensal", "(R$’000 e % acumulado)", 'venc_mensal'),
+            (1, 1): ("Vencimento Anual", "(R$’000 e % acumulado)", 'venc_anual'),
+            (2, 0): ("Concentração por UF", "(R$’000)", 'conc_uf'),
+            (2, 1): ("Distribuição por CAPAG", "(R$’000)", 'dist_capag'),
+            (3, 0): ("Concentração Cumulativa por Sacado", "(%)", 'conc_cumulativa_sacado'),
+            # Garanta que o subtítulo esteja assim:
+            (3, 1): ("Aging da Carteira Vencida", "(R$ MM e % acumulado)", 'aging_vencidos'),
+        }
+    # Loop de plotagem (sem alterações)
     for (row, col), (titulo, subtitulo, path_key) in mapa_graficos.items():
         path = paths_imagens.get(path_key)
         
@@ -837,20 +913,37 @@ def montar_corpo_relatorio(doc, paths_imagens):
 
 def add_page_field(run, field_type):
     """Adiciona um campo de numeração de página (PAGE ou NUMPAGES) a um 'run'."""
-    fldChar1 = OxmlElement('w:fldChar'); fldChar1.set(qn('w:fldCharType'), 'begin')
-    instrText = OxmlElement('w:instrText'); instrText.set(qn('xml:space'), 'preserve'); instrText.text = field_type
-    fldChar2 = OxmlElement('w:fldChar'); fldChar2.set(qn('w:fldCharType'), 'end')
-    run._r.append(fldChar1); run._r.append(instrText); run._r.append(fldChar2)
+    fldChar1 = OxmlElement('w:fldChar')
+    fldChar1.set(qn('w:fldCharType'), 'begin')
+
+    instrText = OxmlElement('w:instrText')
+    instrText.set(qn('xml:space'), 'preserve')
+    instrText.text = field_type
+
+    fldChar2 = OxmlElement('w:fldChar')
+    fldChar2.set(qn('w:fldCharType'), 'end')
+
+    run._r.append(fldChar1)
+    run._r.append(instrText)
+    run._r.append(fldChar2)
+
+
+# CÉLULA 4 (adicionar no final da célula)
 
 def _set_cell_border(cell, **kwargs):
-    """Função auxiliar para definir bordas de uma célula da tabela."""
+    """
+    Função auxiliar para definir bordas de uma célula da tabela.
+    Exemplo de uso:
+    _set_cell_border(cell, top={"sz": 12, "val": "single", "color": "#000000"})
+    """
     tc = cell._tc
     tcPr = tc.get_or_add_tcPr()
     tcBorders = tcPr.first_child_found_in("w:tcBorders")
     if tcBorders is None:
         tcBorders = OxmlElement("w:tcBorders")
         tcPr.append(tcBorders)
-    for edge in ("start", "top", "end", "bottom"):
+
+    for edge in ("start", "top", "end", "bottom", "insideH", "insideV"):
         edge_data = kwargs.get(edge)
         if edge_data:
             tag = f"w:{edge}"
@@ -862,35 +955,63 @@ def _set_cell_border(cell, **kwargs):
                 border.set(qn(f"w:{k}"), str(v))
 
 def adicionar_secao_logos(doc):
-    """Adiciona a seção de logos de Gestão e Administração."""
+    """
+    Adiciona a seção de logos de Gestão e Administração antes do disclaimer.
+    """
+    # Adiciona um parágrafo de espaçamento antes da tabela de logos
     doc.add_paragraph()
+
+    # Define os dados para cada coluna: Título e caminho da imagem
     logo_data = [
         ("Gestão", PATH_LOGO),
         ("Gestão", PATH_LOGO_FICTOR),
         ("Administração", PATH_LOGO_VORTX)
     ]
+
+    # Cria a tabela principal com 3 colunas e 2 linhas
     table = doc.add_table(rows=2, cols=3)
     table.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    border_style = {"sz": 4, "val": "single", "color": "76C6C5"}
+    
+    # Define as propriedades da borda (linha horizontal)
+    border_color = "76C6C5" # Cor primária da sua paleta
+    border_style = {"sz": 4, "val": "single", "color": border_color}
 
+    # Itera sobre as colunas para preencher a tabela
     for i, (title, logo_path) in enumerate(logo_data):
+        # --- Linha 0: Títulos ---
         cell_title = table.cell(0, i)
         p_title = cell_title.paragraphs[0]
         p_title.text = title
         p_title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        # Formata o texto do título
         run = p_title.runs[0]
-        run.font.name = 'Arial'; run.font.size = Pt(10); run.font.color.rgb = RGBColor.from_string("595959")
-        _set_cell_border(cell_title, top=border_style, bottom=border_style)
+        run.font.name = 'Arial'
+        run.font.size = Pt(10)
+        run.font.color.rgb = RGBColor.from_string("595959") # Cinza escuro
 
+        # Adiciona as bordas superior e inferior na célula do título
+        _set_cell_border(cell_title, top=border_style, bottom=border_style)
+        
+        # --- Linha 1: Logos ---
         cell_logo = table.cell(1, i)
+        # Limpa o parágrafo padrão e adiciona um novo centralizado
         cell_logo.text = ''
         p_logo = cell_logo.add_paragraph()
         p_logo.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        # Adiciona a imagem, com altura fixa para manter a proporção
         p_logo.add_run().add_picture(logo_path, height=Cm(1.2))
-        _set_cell_border(cell_logo, top={"val": "nil"}, bottom={"val": "nil"}, start={"val": "nil"}, end={"val": "nil"})
+
+        # Remove bordas da célula do logo para um visual limpo
+        _set_cell_border(cell_logo, top={"val": "nil"}, bottom={"val": "nil"},
+                         start={"val": "nil"}, end={"val": "nil"})
 
 def adicionar_secao_final(doc, df_patr, anbima_path, date_ref):
-    """Adiciona a seção final do relatório (dados, disclaimer, rodapé)."""
+    """
+    Adiciona a seção final do relatório, contendo a tabela de dados do fundo,
+    o disclaimer e o rodapé personalizado.
+    """
     from dateutil.relativedelta import relativedelta
     
     p_dados_title = doc.add_paragraph()
@@ -898,8 +1019,7 @@ def adicionar_secao_final(doc, df_patr, anbima_path, date_ref):
     run_dados_title.font.name = "Gill Sans MT"
     run_dados_title.font.size = Pt(10)
     run_dados_title.font.color.rgb = RGBColor(89, 89, 89)
-    # ### ALTERAÇÃO ### - Cor da borda alterada para azul da paleta.
-    set_paragraph_horizontal_border(p_dados_title, "76C6C5", space="4")
+    set_paragraph_horizontal_border(p_dados_title, "E2EEF0", space="4")
     p_dados_title.paragraph_format.space_after = Pt(5)
     p_dados_title.paragraph_format.space_before = Pt(25)
 
@@ -908,92 +1028,146 @@ def adicionar_secao_final(doc, df_patr, anbima_path, date_ref):
 
     next_el = p_dados_title._element.getnext()
     if next_el is not None and next_el.tag.endswith("p") and not next_el.text:
-        p_dados_title._p.getparent().remove(next_el)
+         p_dados_title._p.getparent().remove(next_el)
 
-    # ### INÍCIO DA ALTERAÇÃO ###
-    # O cálculo de PL volta a somar todas as cotas para representar o PL TOTAL do fundo.
+    # --- Cálculos de Patrimônio (sem alteração) ---
     if df_patr.empty or len(df_patr.columns) == 0:
         pl_ultimo, pl_12m = 0, 0
     else:
         all_dates = pd.to_datetime(df_patr.columns)
-        # Soma o PL de todas as cotas na data de referência
         pl_ultimo = df_patr[date_ref].sum()
 
         date_start_12m = date_ref - relativedelta(years=1)
         cols_12m = all_dates[(all_dates > date_start_12m) & (all_dates <= date_ref)]
-        
-        # Soma o PL de cada dia e depois calcula a média desses totais diários
         pl_12m = df_patr[cols_12m].sum(axis=0).mean() if not cols_12m.empty else 0
-    # ### FIM DA ALTERAÇÃO ###
 
     pl_ultimo_formatted = f"{pl_ultimo:,.0f}".replace(",", ".")
     pl_12m_formatted = f"{pl_12m:,.0f}".replace(",", ".")
 
+    # --- INÍCIO DA MODIFICAÇÃO: NOVOS DADOS DO FUNDO ---
     left_data_info = [
         "Política de Investimento\nO fundo investe em direitos creditórios oriundos empréstimos consignados concedidos de servidores públicos, aposentados e pensionistas.",
         "Denominação Social\nFICTOR CONSIGNADO II FUNDO DE INVESTIMENTO EM DIREITOS CREDITÓRIOS RESPONSABILIDADE LIMITADA",
-        "CNPJ\n52.203.615/0001-19", "Data de início\n28/09/2023",
-        "Rentabilidade alvo da cota Sênior\nCDI + 3%", "Forma de condomínio\nFechado",
+        "CNPJ\n52.203.615/0001-19",
+        "Data de início\n28/09/2023",
+        "Rentabilidade alvo da cota Sênior\nCDI + 3%",
+        "Forma de condomínio\nFechado",
         f"Patrimônio Líquido (Ref: {date_ref.strftime('%d/%m/%Y')})\nR$ {pl_ultimo_formatted}",
         f"Patrimônio Líquido Médio (12M)\nR$ {pl_12m_formatted}"
     ]
     right_data_info = [
-        "Gestores\nPorto Real Investimentos\nFictor Asset", "Administrador\nVórtx DTVM",
-        "Custodiante\nVórtx DTVM", "Taxa de gestão\n2,0%", "Taxa de administração\n0,18%",
-        "Taxa de escrituração\nR$ 2.000,00 por mês", "Taxa máxima de custódia\nIncluída na taxa de gestão",
+        "Gestores\nPorto Real Investimentos\nFictor Asset", # Valor com múltiplas linhas
+        "Administrador\nVórtx DTVM",
+        "Custodiante\nVórtx DTVM",
+        "Taxa de gestão\n2,0%",
+        "Taxa de administração\n0,18%",
+        "Taxa de escrituração\nR$ 2.000,00 por mês",
+        "Taxa máxima de custódia\nIncluída na taxa de gestão",
         "Taxa de performance\nNão há"
     ]
-
+    
+    # Função interna para preencher as células, agora com suporte a múltiplos valores
     def fill_data_cell(text_str, target_cell):
-        p = target_cell.paragraphs[0] if target_cell.paragraphs else target_cell.add_paragraph(); p.clear()
-        p.paragraph_format.space_before = Pt(0); p.paragraph_format.space_after = Pt(0); p.paragraph_format.line_spacing = 1.2
+        p = target_cell.paragraphs[0] if target_cell.paragraphs else target_cell.add_paragraph()
+        p.clear()
+        p.paragraph_format.space_before = Pt(0); p.paragraph_format.space_after = Pt(0)
+        p.paragraph_format.line_spacing = 1.2
+        
         identifier, value = text_str.split("\n", 1)
-        run_id = p.add_run(identifier.strip()); run_id.font.name = "Arial"; run_id.font.size = Pt(8.5); run_id.font.color.rgb = RGBColor(89, 89, 89); run_id.bold = True; run_id.add_break()
+        
+        run_id = p.add_run(identifier.strip())
+        run_id.font.name = "Arial"; run_id.font.size = Pt(8.5)
+        run_id.font.color.rgb = RGBColor(89, 89, 89); run_id.bold = True
+        run_id.add_break()
+
+        # Lida com múltiplos valores (ex: Gestores com duas linhas)
         value_lines = value.strip().split('\n')
         for i, line in enumerate(value_lines):
-            run_val = p.add_run(line.strip()); run_val.font.name = "Arial"; run_val.font.size = Pt(8.5); run_val.font.color.rgb = RGBColor(89, 89, 89)
-            if i < len(value_lines) - 1: run_val.add_break()
+            run_val = p.add_run(line.strip())
+            run_val.font.name = "Arial"; run_val.font.size = Pt(8.5)
+            run_val.font.color.rgb = RGBColor(89, 89, 89)
+            if i < len(value_lines) - 1: # Adiciona quebra de linha se não for o último valor
+                run_val.add_break()
 
+    # Preenchimento das tabelas
     left_tbl = data_parent_tbl.cell(0, 0).add_table(rows=len(left_data_info), cols=1)
     right_tbl = data_parent_tbl.cell(0, 1).add_table(rows=len(right_data_info), cols=1)
-    for i, text in enumerate(left_data_info): fill_data_cell(text, left_tbl.cell(i, 0))
-    for i, text in enumerate(right_data_info): fill_data_cell(text, right_tbl.cell(i, 0))
 
+    for i, text in enumerate(left_data_info):
+        fill_data_cell(text, left_tbl.cell(i, 0))
+    for i, text in enumerate(right_data_info):
+        fill_data_cell(text, right_tbl.cell(i, 0))
     adicionar_secao_logos(doc)
         
+    # --- Disclaimer e Rodapé (sem alterações) ---
     p_disc_title = doc.add_paragraph()
     run_disc_title = p_disc_title.add_run("\t Disclaimer")
     run_disc_title.font.name = "Gill Sans MT"; run_disc_title.font.size = Pt(10)
     run_disc_title.font.color.rgb = RGBColor(89, 89, 89)
-    # ### ALTERAÇÃO ### - Cor da borda alterada para azul da paleta.
-    set_paragraph_horizontal_border(p_disc_title, "76C6C5")
+    set_paragraph_horizontal_border(p_disc_title, "E2EEF0")
+
     p_disc_body = doc.add_paragraph()
     p_disc_body.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-    run_disc_body = p_disc_body.add_run("As informações contidas neste material são de caráter exclusivamente informativo. A rentabilidade passada não representa garantia de rentabilidade futura. Fundos de investimento não contam com a garantia do administrador, do gestor da carteira, de qualquer mecanismo de seguro ou, ainda, do Fundo Garantidor de Créditos ‐ FGC. Os fundos de crédito privado estão sujeitos a risco de perda substancial de seu patrimônio líquido em caso de eventos que acarretem o não pagamento dos ativos integrantes de sua carteira, inclusive por força de intervenção, liquidação, regime de administração temporária, falência, recuperação judicial ou extrajudicial dos emissores responsáveis pelos ativos do fundo. Não há garantia de que este fundo terá o tratamento tributário para fundos de longo prazo. A rentabilidade divulgada não é líquida de impostos e taxa.")
-    run_disc_body.font.name = "Arial"; run_disc_body.font.size = Pt(8.5); run_disc_body.font.color.rgb = RGBColor(166, 166, 166)
+    run_disc_body = p_disc_body.add_run(
+        "As informações contidas neste material são de caráter exclusivamente informativo. "
+        "A rentabilidade passada não representa garantia de rentabilidade futura. "
+        "Fundos de investimento não contam com a garantia do administrador, do gestor da carteira, "
+        "de qualquer mecanismo de seguro ou, ainda, do Fundo Garantidor de Créditos ‐ FGC. "
+        "Os fundos de crédito privado estão sujeitos a risco de perda substancial de seu patrimônio líquido "
+        "em caso de eventos que acarretem o não pagamento dos ativos integrantes de sua carteira, inclusive por força de intervenção, "
+        "liquidação, regime de administração temporária, falência, recuperação judicial ou extrajudicial dos emissores responsáveis pelos ativos do fundo. "
+        "Não há garantia de que este fundo terá o tratamento tributário para fundos de longo prazo. "
+        "A rentabilidade divulgada não é líquida de impostos e taxa."
+    )
+    run_disc_body.font.name = "Arial"; run_disc_body.font.size = Pt(8.5)
+    run_disc_body.font.color.rgb = RGBColor(166, 166, 166)
 
-    footer = doc.sections[0].footer
+    section = doc.sections[0]
+    footer = section.footer
     footer_table = footer.tables[0] if footer.tables else footer.add_table(rows=1, cols=3, width=Cm(18))
-    cell_left = footer_table.cell(0, 0); cell_left.width = Cm(4); p_left = cell_left.paragraphs[0]; p_left.clear(); p_left.add_run().add_picture(anbima_path, height=Cm(1.0))
-    cell_center = footer_table.cell(0, 1); cell_center.width = Cm(10); p_center = cell_center.paragraphs[0]; p_center.clear(); p_center.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run_contato = p_center.add_run("PORTO REAL ASSET\nAv. São Gabriel 301 – 2º andar – Itaim Bibi – São Paulo (SP)\n"); run_contato.font.name = "Arial"; run_contato.font.size = Pt(9); run_contato.font.color.rgb = RGBColor(127, 127, 127)
-    run_link = p_center.add_run("contato@portorealasset.com.br"); run_link.font.name = "Arial"; run_link.font.size = Pt(9); run_link.font.color.rgb = RGBColor(0, 0, 0); run_link.font.underline = True
-    cell_right = footer_table.cell(0, 2); cell_right.width = Cm(4); p_right = cell_right.paragraphs[0]; p_right.clear(); p_right.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    run_priv = p_right.add_run("Documento estritamente privado e confidencial"); run_priv.font.name = "Arial"; run_priv.font.size = Pt(8); run_priv.font.color.rgb = RGBColor(89, 89, 89)
-    p_page = cell_right.add_paragraph(); p_page.alignment = WD_ALIGN_PARAGRAPH.RIGHT; font_page = {"name": "Arial", "size": Pt(8), "color": RGBColor(89, 89, 89)}
-    run = p_page.add_run("Página "); run.font.name=font_page['name']; run.font.size=font_page['size']; run.font.color.rgb=font_page['color']
-    run = p_page.add_run(); add_page_field(run, "PAGE"); run.font.name=font_page['name']; run.font.size=font_page['size']; run.font.color.rgb=font_page['color']
-    run = p_page.add_run(" de "); run.font.name=font_page['name']; run.font.size=font_page['size']; run.font.color.rgb=font_page['color']
-    run = p_page.add_run(); add_page_field(run, "NUMPAGES"); run.font.name=font_page['name']; run.font.size=font_page['size']; run.font.color.rgb=font_page['color']
+
+    cell_left = footer_table.cell(0, 0); cell_left.width = Cm(4)
+    p_left = cell_left.paragraphs[0]; p_left.clear()
+    p_left.add_run().add_picture(anbima_path, height=Cm(1.0))
+
+    cell_center = footer_table.cell(0, 1); cell_center.width = Cm(10)
+    p_center = cell_center.paragraphs[0]; p_center.clear()
+    p_center.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run_contato = p_center.add_run("PORTO REAL ASSET\nAv. São Gabriel 301 – 2º andar – Itaim Bibi – São Paulo (SP)\n")
+    run_contato.font.name = "Arial"; run_contato.font.size = Pt(9)
+    run_contato.font.color.rgb = RGBColor(127, 127, 127)
+    run_link = p_center.add_run("contato@portorealasset.com.br")
+    run_link.font.name = "Arial"; run_link.font.size = Pt(9)
+    run_link.font.color.rgb = RGBColor(0, 0, 0); run_link.font.underline = True
+
+    cell_right = footer_table.cell(0, 2); cell_right.width = Cm(4)
+    p_right = cell_right.paragraphs[0]; p_right.clear()
+    p_right.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    run_priv = p_right.add_run("Documento estritamente privado e confidencial")
+    run_priv.font.name = "Arial"; run_priv.font.size = Pt(8)
+    run_priv.font.color.rgb = RGBColor(89, 89, 89)
+    
+    p_page = cell_right.add_paragraph(); p_page.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    font_page = {"name": "Arial", "size": Pt(8), "color": RGBColor(89, 89, 89)}
+    run_page_text = p_page.add_run("Página "); run_page_text.font.name = font_page['name']; run_page_text.font.size = font_page['size']; run_page_text.font.color.rgb = font_page['color']
+    run_page_current = p_page.add_run(); add_page_field(run_page_current, "PAGE"); run_page_current.font.name = font_page['name']; run_page_current.font.size = font_page['size']; run_page_current.font.color.rgb = font_page['color']
+    run_page_de = p_page.add_run(" de "); run_page_de.font.name = font_page['name']; run_page_de.font.size = font_page['size']; run_page_de.font.color.rgb = font_page['color']
+    run_page_total = p_page.add_run(); add_page_field(run_page_total, "NUMPAGES"); run_page_total.font.name = font_page['name']; run_page_total.font.size = font_page['size']; run_page_total.font.color.rgb = font_page['color']
+
+
+
+
 # %%
 # =============================================================================
 # CÉLULA 5: ORQUESTRADOR PRINCIPAL - EXECUÇÃO DO FLUXO
 # =============================================================================
+# CÉLULA 5: ORQUESTRADOR PRINCIPAL - EXECUÇÃO DO FLUXO
 
 def gerar_relatorio_completo():
+    
     """Função principal que orquestra todo o processo."""
-    from dateutil.relativedelta import relativedelta
-
+    from dateutil.relativedelta import relativedelta # Adicionar importação aqui
+    
     # --- ETAPA 1: PROCESSAMENTO DE DADOS DE RENTABILIDADE ---
     df_rentabilidade = carregar_dados_rentabilidade(PATH_RENTABILIDADE)
     if df_rentabilidade.empty:
@@ -1002,38 +1176,38 @@ def gerar_relatorio_completo():
 
     df_cota = df_rentabilidade.pivot_table(index='data', columns='nomeFundo', values='valorCota').ffill().T
     df_patr = df_rentabilidade.pivot_table(index='data', columns='nomeFundo', values='pl').ffill().T
-
+    
     df_cdi = obter_dados_bacen(12)
     if not df_cdi.empty:
         df_cota.loc['CDI'] = (1 + df_cdi['valor'] / 100).cumprod().ffill()
-
+    
     df_retornos = preparar_df_retornos(df_rentabilidade, df_cota)
-
-    # ### INÍCIO DA ALTERAÇÃO ###
-    # O cálculo da data de referência foi simplificado para usar a data mais recente disponível.
+    
+    # --- NOVO: CALCULAR A DATA DE REFERÊNCIA DO RELATÓRIO ANTECIPADAMENTE ---
     if df_patr.empty or len(df_patr.columns) == 0:
-        data_ref = datetime.now() # Caso não haja dados, usa a data atual
+        data_ref = datetime.now() # Fallback
     else:
         all_dates = pd.to_datetime(df_patr.columns)
-        # Define date_ref como a última data encontrada no conjunto de dados.
-        data_ref = all_dates[-1]
-    # ### FIM DA ALTERAÇÃO ###
+        last_date = all_dates[-1]
+        first_day_of_last_month = last_date.replace(day=1)
+        last_day_of_prev_month = first_day_of_last_month - pd.Timedelta(days=1)
+        prev_month_dates = all_dates[all_dates <= last_day_of_prev_month]
+        data_ref = prev_month_dates[-1] if not prev_month_dates.empty else last_date
+    # --------------------------------------------------------------------------
     
-    print(f"\nData de referência para o relatório definida como: {data_ref.strftime('%d/%m/%Y')}")
-
     # --- ETAPA 2: GERAÇÃO DAS IMAGENS ---
     print("\n--- Gerando imagens de Rentabilidade ---")
     paths_imagens = {}
-    
-    fundos_para_analise = {
-        'FIDC FCT II SR2': 'Sênior'
+    fundos_para_tabela = {
+        'FIDC FCT II SR2': 'Sênior',
+        'FIDC FCT II': 'Subordinada'
     }
-
-    paths_imagens['tabela_perf'] = criar_tabela_performance(df_rentabilidade, fundos_para_analise, df_cota)
-    paths_rentabilidade = plotar_graficos_rentabilidade(df_cota, df_patr, df_retornos, fundos_para_analise)
+    paths_imagens['tabela_perf'] = criar_tabela_performance(df_rentabilidade, fundos_para_tabela, df_cota)
+    paths_rentabilidade = plotar_graficos_rentabilidade(df_cota, df_patr, df_retornos, fundos_para_tabela)
     paths_imagens.update(paths_rentabilidade)
     
     df_estoque = processar_dados_estoque(PATH_ESTOQUE)
+    # MODIFICADO: Passar a data_ref para a função de gráficos de estoque
     paths_estoque = plotar_graficos_estoque(df_estoque, data_ref)
     paths_imagens.update(paths_estoque)
     
@@ -1043,6 +1217,8 @@ def gerar_relatorio_completo():
     
     configurar_cabecalho_rodape(doc, 'Lâmina de Performance e Estoque', data_ref, PATH_LOGO)
     montar_corpo_relatorio(doc, paths_imagens)
+    
+    # MODIFICADO: Passar a data_ref já calculada para a seção final
     adicionar_secao_final(doc, df_patr, PATH_ANBIMA_LOGO, data_ref)
     
     nome_arquivo = f"Lamina_Completa_{data_ref.strftime('%Y-%m-%d')}.docx"
@@ -1051,25 +1227,14 @@ def gerar_relatorio_completo():
     try:
         doc.save(path_docx)
         print(f"Relatório DOCX gerado com sucesso em: {path_docx}")
-
-        try:
-            print("Iniciando conversão para PDF...")
-            path_pdf = path_docx.replace(".docx", ".pdf")
-            convert(path_docx, path_pdf)
-            print(f"Relatório PDF gerado com sucesso em: {path_pdf}")
-        except Exception as e:
-            print("\n--- ERRO NA CONVERSÃO PARA PDF ---")
-            print(f"Ocorreu um erro ao tentar converter o DOCX para PDF. Mensagem: {e}")
-            print("\nPASSOS PARA RESOLVER:")
-            print("1. (MAIS COMUM) Abra o Gerenciador de Tarefas (Ctrl+Shift+Esc), vá em 'Detalhes' e finalize qualquer processo 'WINWORD.EXE'.")
-            print("2. Abra o Microsoft Word sozinho e veja se aparece alguma janela pedindo sua atenção (ex: login, recuperação de arquivos).")
-            print(f"3. Tente abrir o arquivo '{os.path.basename(path_docx)}' e salvá-lo como PDF manualmente para ver se o Word consegue.")
-            print("4. Se nada funcionar, repare a sua instalação do Microsoft Office.")
-
+        
+        print("Iniciando conversão para PDF...")
+        path_pdf = path_docx.replace(".docx", ".pdf")
+        convert(path_docx, path_pdf)
+        print(f"Relatório PDF gerado com sucesso em: {path_pdf}")
     except Exception as e:
-        print(f"Ocorreu um erro CRÍTICO ao gerar o arquivo DOCX: {e}")
+        print(f"Ocorreu um erro ao salvar o relatório: {e}")
+
 
 if __name__ == "__main__":
     gerar_relatorio_completo()
-# =============================================================================
-# FIM DO CÓDIGO
