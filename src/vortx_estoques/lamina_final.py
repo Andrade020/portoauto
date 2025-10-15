@@ -9,6 +9,7 @@
 # =============================================================================
 # CÉLULA 1: BIBLIOTECAS E CONFIGURAÇÕES GERAIS
 # =============================================================================
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -26,6 +27,12 @@ from docx.oxml.ns import qn
 import re
 from dateutil.parser import parse
 import time
+# Adicione estes imports junto com os outros
+import matplotlib.dates as mdates
+import locale
+
+# Adicione esta linha após os imports para configurar o idioma
+locale.setlocale(locale.LC_TIME, 'pt_BR.UTF-8')
 
 # --- PARÂMETROS DE ENTRADA E SAÍDA ---
 # ! ATENÇÃO: Configure os caminhos e nomes de arquivos aqui.
@@ -220,6 +227,77 @@ def preparar_df_retornos(df_rentabilidade, df_cota_com_cdi):
 # =============================================================================
 # CÉLULA 3: FUNÇÕES DE GERAÇÃO DE GRÁFICOS E TABELAS
 # =============================================================================
+# Adicione estas bibliotecas no início do seu script, caso não as tenha
+# Adicione estas bibliotecas no início do seu script, caso não as tenha
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+import matplotlib.ticker as ticker
+import os
+
+def plotar_grafico_subordinacao(df_patrimonio, pasta_saida):
+    """
+    Calcula e plota o histórico do índice de subordinação do fundo.
+    MODIFICADO: Adicionada anotação de "Limite Mínimo" na linha pontilhada.
+    """
+    print("Gerando gráfico de subordinação...")
+    try:
+        # ... (código de cálculo) ...
+        pl_subordinado = df_patrimonio.loc['FIDC FCT II']
+        pl_senior = df_patrimonio.loc['FIDC FCT II SR2']
+        pl_total = pl_senior + pl_subordinado
+        indice_subordinacao = (pl_subordinado / pl_total.replace(0, np.nan)).dropna() * 100
+        if indice_subordinacao.empty: return None
+
+        # --- PLOTAGEM ---
+        fig, ax = plt.subplots(figsize=(8, 4.5))
+        ax.plot(indice_subordinacao.index, indice_subordinacao.values, color=COLOR_PALETTE['primary_dark'], lw=2.5)
+        ax.axhline(y=20, color='gray', linestyle='--', linewidth=1.2, alpha=0.7)
+        
+        # --- Formatação do Gráfico ---
+        ax.axhline(0, color='lightgray', linestyle='-', linewidth=1, zorder=0)
+        ax.spines[['top', 'right', 'left', 'bottom']].set_visible(False)
+        ax.tick_params(
+            axis='both', which='both', length=0, 
+            labelsize=10, labelcolor='#333333'
+        )
+        ax.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=5, maxticks=7))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%b/%y'))
+        fig.autofmt_xdate()
+        ax.yaxis.set_major_formatter(ticker.PercentFormatter(xmax=100.0))
+        ax.set_ylim(bottom=0)
+        
+        # --- Rótulos e Anotações ---
+        ultimo_valor = indice_subordinacao.iloc[-1]
+        ax.text(indice_subordinacao.index[-1], ultimo_valor, f' {ultimo_valor:.2f}%'.replace('.',','), 
+                color=COLOR_PALETTE['primary_dark'], fontsize=12, va='center', ha='right')
+        
+        # ALTERAÇÃO: Anotação para a linha de limite mínimo
+        ax.annotate(
+            'Limite Mínimo',
+            xy=(indice_subordinacao.index[-1], 20), # Posição da seta
+            xytext=(8, 0),                          # Deslocamento do texto
+            textcoords='offset points',
+            ha='left',
+            va='center',
+            fontsize=9,
+            color='gray'
+        )
+
+        path_saida_grafico = os.path.join(pasta_saida, "grafico_subordinacao.png")
+        fig.savefig(path_saida_grafico, dpi=300, bbox_inches='tight')
+        plt.close(fig)
+        
+        print(f"Gráfico de subordinação (versão final) salvo em: {path_saida_grafico}")
+        return path_saida_grafico
+
+    except KeyError as e:
+        print(f"AVISO: Não foi possível gerar o gráfico de subordinação. Cota não encontrada: {e}")
+        return None
+    except Exception as e:
+        print(f"ERRO inesperado ao gerar gráfico de subordinação: {e}")
+        return None
+
 
 def _render_mpl_table(data, ax, col_width=1.5, row_height=0.625, font_size=10):
     """Função auxiliar para renderizar uma tabela Matplotlib com estilo."""
@@ -372,57 +450,81 @@ def criar_tabela_performance(df_rentabilidade_processada, fundos_a_exibir, df_co
     plt.close(fig)
     print(f"Tabela de rentabilidade (lógica do CDI corrigida) salva em: {path_tabela}")
     return path_tabela
+# Adicione estas bibliotecas no início do seu script, caso não as tenha
+import matplotlib.dates as mdates
+import matplotlib.ticker as ticker
+
 def plotar_graficos_rentabilidade(df_cota, df_patr, df_retornos, fundos_a_exibir, benchmark='CDI'):
     """
     Cria e salva todos os gráficos de performance.
-    MODIFICADO: Gráfico de PL agora mostra apenas a cota Sênior.
+    MODIFICADO: Ajustes finos nos eixos e rótulos do gráfico de retorno.
     """
+    # ... (código inicial da função) ...
     fundo_alvo_principal = list(fundos_a_exibir.keys())[0]
     nome_exib_principal = list(fundos_a_exibir.values())[0]
     nome_arquivo_limpo = fundo_alvo_principal.replace(' ', '_')
 
-    # --- 1. Gráfico de Retorno Acumulado (sem alterações) ---
-    fig, ax = plt.subplots(figsize=(12, 6))
+    # --- 1. Gráfico de Retorno Acumulado ---
+    fig, ax = plt.subplots(figsize=(8, 4.5))
     
+    # ... (código de cálculo das linhas) ...
     inception_dates = []
-    # Garante que fundos_a_exibir seja sempre uma lista, mesmo com um item
     fundos_para_loop = list(fundos_a_exibir.keys())
     for f in fundos_para_loop:
         first_valid_index = df_retornos[f].dropna().index.min()
         inception_dates.append(first_valid_index)
     common_start_date = max(inception_dates)
-    
-    # Usa a cor primária, já que agora é só um fundo
     cor_fundo = COLOR_PALETTE['primary_light']
 
+    # Plotagem do Fundo
     for fundo_nome, fundo_label in fundos_a_exibir.items():
-        retornos_diarios_full = df_retornos[fundo_nome].dropna()
-        retornos_diarios = retornos_diarios_full[retornos_diarios_full.index >= common_start_date]
+        # ... (cálculo do retorno do fundo) ...
+        retornos_diarios = df_retornos[fundo_nome].dropna()[common_start_date:]
         if retornos_diarios.empty: continue
-        df_fund_evol_norm = (1 + retornos_diarios).cumprod() * 100
-        ax.plot(df_fund_evol_norm, color=cor_fundo, lw=2.5, label=fundo_label)
-        ax.text(df_fund_evol_norm.index[-1], df_fund_evol_norm.iloc[-1], f' {df_fund_evol_norm.iloc[-1]:.2f}', 
+        df_fund_evol_pct = ((1 + retornos_diarios).cumprod() - 1) * 100
+        ax.plot(df_fund_evol_pct, color=cor_fundo, lw=2.5, label=fundo_label)
+        last_val = df_fund_evol_pct.iloc[-1]
+        
+        # ALTERAÇÃO: Troca ponto por vírgula no rótulo
+        label_text_br = f' +{last_val:.2f}%'.replace('.', ',')
+        ax.text(df_fund_evol_pct.index[-1], last_val, label_text_br, 
                 color=cor_fundo, fontsize=12, va='center')
 
+    # Plotagem do Benchmark
     if benchmark in df_retornos.columns:
-        retornos_cdi = df_retornos[benchmark][df_retornos.index >= common_start_date].dropna()
+        # ... (cálculo do retorno do benchmark) ...
+        retornos_cdi = df_retornos[benchmark].dropna()[common_start_date:]
         if not retornos_cdi.empty:
-            df_bench_evol_norm = (1 + retornos_cdi).cumprod() * 100
-            ax.plot(df_bench_evol_norm, color='k', linestyle='--', alpha=0.7, lw=2, label=benchmark)
-            ax.text(df_bench_evol_norm.index[-1], df_bench_evol_norm.iloc[-1], f' {df_bench_evol_norm.iloc[-1]:.2f}', 
+            df_bench_evol_pct = ((1 + retornos_cdi).cumprod() - 1) * 100
+            ax.plot(df_bench_evol_pct, color='k', linestyle='--', alpha=0.7, lw=2, label=benchmark)
+            last_val_bench = df_bench_evol_pct.iloc[-1]
+            
+            # ALTERAÇÃO: Troca ponto por vírgula no rótulo
+            label_text_bench_br = f' +{last_val_bench:.2f}%'.replace('.', ',')
+            ax.text(df_bench_evol_pct.index[-1], last_val_bench, label_text_bench_br, 
                     color='k', alpha=0.8, fontsize=12, va='center')
-    else:
-        print("AVISO: Dados do benchmark (CDI) não encontrados para o gráfico de retorno.")
-
-    ax.spines[['top', 'right']].set_visible(False)
-    ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.0f'))
-    ax.grid(axis='y', linestyle='--', alpha=0.7)
-    ax.set_title(f'Retorno Acumulado (Início Comum: {common_start_date.strftime("%d/%m/%Y")})', fontsize=16, pad=20)
-    ax.legend(loc='upper left', frameon=False, fontsize=12)
+    
+    # --- Formatação do Gráfico ---
+    ax.axhline(0, color='lightgray', linestyle='-', linewidth=1, zorder=0)
+    ax.spines[['top', 'right', 'left', 'bottom']].set_visible(False)
+    ax.tick_params(
+        axis='both', which='both', length=0, 
+        labelsize=10, labelcolor='#333333'
+    )
+    
+    # ALTERAÇÃO: Remove as casas decimais do eixo Y
+    ax.yaxis.set_major_formatter(ticker.PercentFormatter(xmax=100, decimals=0))
+    
+    # ALTERAÇÃO: Define intervalos de 2 em 2 meses no eixo X
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2)) 
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%b/%y'))
+    fig.autofmt_xdate()
+    
+    ax.legend(loc='upper left', frameon=False, fontsize=10)
     plt.tight_layout()
     path_retorno = os.path.join(PASTA_SAIDA_IMAGENS, f"grafico_retorno_{nome_arquivo_limpo}.png")
     fig.savefig(path_retorno, dpi=300, bbox_inches='tight'); plt.close(fig)
-    print(f"Gráfico de retorno salvo em: {path_retorno}")
+    print(f"Gráfico de retorno (ajustes finos) salvo em: {path_retorno}")
 
     # --- 2. Gráfico de Volatilidade (sem alterações) ---
     fig, ax = plt.subplots(figsize=(12, 6))
@@ -455,39 +557,29 @@ def plotar_graficos_rentabilidade(df_cota, df_patr, df_retornos, fundos_a_exibir
     fig.savefig(path_dd, dpi=300, bbox_inches='tight'); plt.close(fig)
     print(f"Gráfico de drawdown salvo em: {path_dd}")
 
-    # ### INÍCIO DA ALTERAÇÃO ###
-    # --- 4. Gráfico de Evolução do PL (Modificado para linha única) ---
+    # --- 4. Gráfico de Evolução do PL (sem alterações) ---
     fig, ax = plt.subplots(figsize=(12, 6))
-    
-    # Seleciona apenas o PL do fundo principal (Sênior)
     df_plot_pl = df_patr.loc[fundo_alvo_principal].dropna()
-    
-    # Plota como um gráfico de linha/área em vez de empilhado
     ax.plot(df_plot_pl.index, df_plot_pl.values, color=COLOR_PALETTE['primary_light'], lw=2.5, label=nome_exib_principal)
     ax.fill_between(df_plot_pl.index, df_plot_pl.values, 0, color=COLOR_PALETTE['primary_light'], alpha=0.3)
-    
     ax.spines[['top', 'right']].set_visible(False)
     ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, p: f'R$ {x/1e6:.1f}M'))
     ax.grid(axis='y', linestyle='--', alpha=0.7)
     ax.set_title(f'Evolução do Patrimônio Líquido (PL) - {nome_exib_principal}', fontsize=16, pad=20)
     ax.legend(loc='upper left', frameon=False, fontsize=12)
-    
-    # Pega o último valor do PL para o rótulo
     pl_final = df_plot_pl.iloc[-1]
     ax.text(df_plot_pl.index[-1], pl_final, f' R$ {pl_final/1e6:.2f}M',
             color=COLOR_PALETTE['secondary'], fontsize=12, va='center', ha='left')
-            
     plt.tight_layout()
     path_pl = os.path.join(PASTA_SAIDA_IMAGENS, f"grafico_pl_{nome_arquivo_limpo}.png")
     fig.savefig(path_pl, dpi=300, bbox_inches='tight'); plt.close(fig)
     print(f"Gráfico de PL (apenas Sênior) salvo em: {path_pl}")
-    # ### FIM DA ALTERAÇÃO ###
     
     return {
         'retorno': path_retorno, 'volatilidade': path_vol,
         'drawdown': path_dd, 'pl': path_pl
     }
-# ### ALTERAÇÃO ### - Função principal de plotagem de estoque.
+
 def plotar_graficos_estoque(df_estoque, data_referencia):
     """Cria e salva todos os gráficos relacionados ao estoque."""
     if df_estoque.empty:
@@ -782,18 +874,15 @@ def montar_corpo_relatorio(doc, paths_imagens):
     def add_section_title(cell, title, subtitle=""):
         p = cell.add_paragraph()
         p.paragraph_format.space_before, p.paragraph_format.space_after = Pt(6), Pt(2)
-        
         run = p.add_run(title)
         run.font.name, run.font.size, run.bold = "Gill Sans MT", Pt(10), False
         run.font.color.rgb = RGBColor(89, 89, 89)
-        
         if subtitle:
             p.add_run("\n")
             run_sub = p.add_run(subtitle)
             run_sub.font.name = "Gill Sans MT"
             run_sub.font.size = Pt(8)
             run_sub.font.color.rgb = RGBColor(89, 89, 89)
-        
         set_paragraph_horizontal_border(p, color="76C6C5", space="2")
 
     # Tabela de Rentabilidade
@@ -806,24 +895,28 @@ def montar_corpo_relatorio(doc, paths_imagens):
     if paths_imagens.get('tabela_perf') and os.path.exists(paths_imagens['tabela_perf']):
         doc.add_picture(paths_imagens['tabela_perf'], width=Cm(17.8))
 
-    # Tabela de Gráficos
-    graphs_table = doc.add_table(rows=3, cols=2)
+    # ### INÍCIO DA ALTERAÇÃO ###
+    # Tabela de Gráficos agora com 4 linhas para acomodar o novo gráfico
+    graphs_table = doc.add_table(rows=4, cols=2)
+    # ### FIM DA ALTERAÇÃO ###
     graphs_table.autofit = False
     for col in graphs_table.columns:
         col.width = Cm(8.9)
     img_width = Cm(8.5)
 
+    # ### INÍCIO DA ALTERAÇÃO ###
+    # Mapa de gráficos atualizado com o novo "Índice de Subordinação"
     mapa_graficos = {
         (0, 0): ("Retorno Acumulado", "", 'retorno'),
         (0, 1): ("Evolução do Patrimônio Líquido (PL)", "(R$ MM)", 'pl'),
-        (1, 0): ("Vencimento Mensal", "(R$’000 e % acumulado)", 'venc_mensal'),
-        (1, 1): ("Vencimento Anual", "(R$’000 e % acumulado)", 'venc_anual'),
-        (2, 0): ("Concentração Cumulativa por Sacado", "(%)", 'conc_cumulativa_sacado'),
-        # ### INÍCIO DA ALTERAÇÃO ###
-        # Altera a unidade no subtítulo de R$ MM para R$ '000.
-        (2, 1): ("Aging da Carteira Vencida", "(R$’000 e % acumulado)", 'aging_vencidos'),
-        # ### FIM DA ALTERAÇÃO ###
+        (1, 0): ("Índice de Subordinação", "(% do PL Total)", 'subordinacao'), # NOVO GRÁFICO
+        (1, 1): ("Volatilidade Anualizada", "(Janela de 22 dias)", 'volatilidade'),
+        (2, 0): ("Vencimento Mensal", "(R$’000 e % acumulado)", 'venc_mensal'),
+        (2, 1): ("Vencimento Anual", "(R$’000 e % acumulado)", 'venc_anual'),
+        (3, 0): ("Concentração Cumulativa por Sacado", "(%)", 'conc_cumulativa_sacado'),
+        (3, 1): ("Aging da Carteira Vencida", "(R$’000 e % acumulado)", 'aging_vencidos'),
     }
+    # ### FIM DA ALTERAÇÃO ###
     
     for (row, col), (titulo, subtitulo, path_key) in mapa_graficos.items():
         path = paths_imagens.get(path_key)
@@ -834,7 +927,6 @@ def montar_corpo_relatorio(doc, paths_imagens):
             p_img = cell.add_paragraph()
             p_img.alignment = WD_ALIGN_PARAGRAPH.CENTER
             p_img.add_run().add_picture(path, width=img_width)
-
 def add_page_field(run, field_type):
     """Adiciona um campo de numeração de página (PAGE ou NUMPAGES) a um 'run'."""
     fldChar1 = OxmlElement('w:fldChar'); fldChar1.set(qn('w:fldCharType'), 'begin')
@@ -989,7 +1081,6 @@ def adicionar_secao_final(doc, df_patr, anbima_path, date_ref):
 # =============================================================================
 # CÉLULA 5: ORQUESTRADOR PRINCIPAL - EXECUÇÃO DO FLUXO
 # =============================================================================
-
 def gerar_relatorio_completo():
     """Função principal que orquestra todo o processo."""
     from dateutil.relativedelta import relativedelta
@@ -1009,15 +1100,11 @@ def gerar_relatorio_completo():
 
     df_retornos = preparar_df_retornos(df_rentabilidade, df_cota)
 
-    # ### INÍCIO DA ALTERAÇÃO ###
-    # O cálculo da data de referência foi simplificado para usar a data mais recente disponível.
     if df_patr.empty or len(df_patr.columns) == 0:
-        data_ref = datetime.now() # Caso não haja dados, usa a data atual
+        data_ref = datetime.now()
     else:
         all_dates = pd.to_datetime(df_patr.columns)
-        # Define date_ref como a última data encontrada no conjunto de dados.
         data_ref = all_dates[-1]
-    # ### FIM DA ALTERAÇÃO ###
     
     print(f"\nData de referência para o relatório definida como: {data_ref.strftime('%d/%m/%Y')}")
 
@@ -1032,6 +1119,11 @@ def gerar_relatorio_completo():
     paths_imagens['tabela_perf'] = criar_tabela_performance(df_rentabilidade, fundos_para_analise, df_cota)
     paths_rentabilidade = plotar_graficos_rentabilidade(df_cota, df_patr, df_retornos, fundos_para_analise)
     paths_imagens.update(paths_rentabilidade)
+    
+    # ### INÍCIO DA ALTERAÇÃO ###
+    # Chamada para a nova função do gráfico de subordinação
+    paths_imagens['subordinacao'] = plotar_grafico_subordinacao(df_patr, PASTA_SAIDA_IMAGENS)
+    # ### FIM DA ALTERAÇÃO ###
     
     df_estoque = processar_dados_estoque(PATH_ESTOQUE)
     paths_estoque = plotar_graficos_estoque(df_estoque, data_ref)
@@ -1069,7 +1161,6 @@ def gerar_relatorio_completo():
     except Exception as e:
         print(f"Ocorreu um erro CRÍTICO ao gerar o arquivo DOCX: {e}")
 
+
 if __name__ == "__main__":
     gerar_relatorio_completo()
-# =============================================================================
-# FIM DO CÓDIGO

@@ -31,7 +31,7 @@ FUNDO_ALVO = 'FIDC FCT II SR2'
 
 # CAMINHOS DOS DADOS DE ENTRADA
 PATH_RENTABILIDADE = r"C:\Users\Leo\Desktop\Porto_Real\portoauto\src\vortx_estoques\data\135972-Rentabilidade_Sintetica.csv"
-PATH_ESTOQUE = r"C:\Users\Leo\Desktop\Porto_Real\portoauto\src\vortx_estoques\data\estoque_consolidado_agosto"
+PATH_ESTOQUE = r"C:\Users\Leo\Downloads\wetransfer_estoque-fct_2025-10-14_1451"
 PATH_TEMPLATE_DOCX = r"C:\Users\Leo\Desktop\Porto_Real\portoreal\notebooks\template.docx"
 PATH_LOGO = r"C:\Users\Leo\Desktop\Porto_Real\portoauto\images\logo.png"
 PATH_ANBIMA_LOGO = r"C:\Users\Leo\Desktop\Porto_Real\portoauto\images\anbima.png" 
