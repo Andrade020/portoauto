@@ -18,6 +18,17 @@
 *.crdownload
 temp/estoques/*.crdownload
 
+notebooks/testes (1).ipynb
+dags/aux_temp.py
+dags/common/
+dags/dags_temp.ipynb
+dags/vortx_api/
+dashboard_fct/dashboard_data.parquet
+dashboard_fct/process_data.py
+src/fct_consig/flask_dashboard_estilizado/
+
+
+
 Graficos_estoque-Felipe.ipynb 
 new_ext_downloader.py
 old_extratos_downloader.py
