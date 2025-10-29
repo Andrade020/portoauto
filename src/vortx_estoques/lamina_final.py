@@ -110,7 +110,6 @@ def carregar_dados_rentabilidade(caminho_arquivo):
         print(f"ERRO: Arquivo de rentabilidade não encontrado em: {caminho_arquivo}")
         return pd.DataFrame()
 
-
 def processar_dados_estoque(caminho_pasta):
     """Lê o conjunto de arquivos de estoque mais recente e calcula o status de vencimento."""
     print("\nCarregando dados do novo estoque...")
@@ -450,6 +449,9 @@ def criar_tabela_performance(df_rentabilidade_processada, fundos_a_exibir, df_co
     plt.close(fig)
     print(f"Tabela de rentabilidade (lógica do CDI corrigida) salva em: {path_tabela}")
     return path_tabela
+
+
+
 # Adicione estas bibliotecas no início do seu script, caso não as tenha
 import matplotlib.dates as mdates
 import matplotlib.ticker as ticker
@@ -927,6 +929,7 @@ def montar_corpo_relatorio(doc, paths_imagens):
             p_img = cell.add_paragraph()
             p_img.alignment = WD_ALIGN_PARAGRAPH.CENTER
             p_img.add_run().add_picture(path, width=img_width)
+
 def add_page_field(run, field_type):
     """Adiciona um campo de numeração de página (PAGE ou NUMPAGES) a um 'run'."""
     fldChar1 = OxmlElement('w:fldChar'); fldChar1.set(qn('w:fldCharType'), 'begin')
