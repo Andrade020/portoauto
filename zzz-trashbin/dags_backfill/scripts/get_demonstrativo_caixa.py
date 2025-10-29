@@ -12,8 +12,8 @@ query GetDemonstrativoCaixa($cnpjFundo: String!, $data: Date!) {
 }
 """
 
-def main(data_str):
-    print(f"--- Iniciando busca do Demonstrativo de Caixa para {data_str} ---")
+def main(exec_date):
+    print(f"--- Iniciando busca do Demonstrativo de Caixa para {exec_date} ---")
     handler = VortxHandler()
     
     source_name = handler.config.get('CAIXA', 'source_name')
@@ -23,7 +23,7 @@ def main(data_str):
         raise Exception("Falha na autenticação Vórtx")
 
     try:
-        variables = {"cnpjFundo": cnpj, "data": data_str}
+        variables = {"cnpjFundo": cnpj, "data": exec_date}
         response_data = handler.make_graphql_request(QUERY, variables)
         
         dados_caixa_raw = response_data.get("getDemonstrativoCaixa")
@@ -33,22 +33,10 @@ def main(data_str):
 
         dados_caixa = dados_caixa_raw[0] if isinstance(dados_caixa_raw, list) else dados_caixa_raw
         
-        filename_base = f"caixa_{cnpj.replace('.', '').replace('/', '').replace('-', '')}_{data_str.replace('-', '')}"
-        handler.save_json(
-            data=dados_caixa,
-            source_name=source_name, # ex: 'demonstrativo_caixa'
-            tipo="caixa",            # Tipo para nome do arquivo
-            data_ref=data_str       # Data da task
-            # Adicione data_ini=dados_caixa.get('dataInicio'), data_fim=dados_caixa.get('dataFim') se quiser essas datas no nome
-            # data_ini=dados_caixa.get('dataInicio'), # Opcional: Pega do retorno da API
-            # data_fim=dados_caixa.get('dataFim')      # Opcional: Pega do retorno da API
-        )
-        entradas = dados_caixa.get("entradas", [])
-        if entradas:
-            handler.save_csv(
-                data=entradas, source_name=source_name,
-                tipo="caixa_entradas", data_ref=data_str
-            )
+        filename_base = f"caixa_{cnpj.replace('.', '').replace('/', '').replace('-', '')}_{exec_date.replace('-', '')}"
+        handler.save_json(dados_caixa, source_name, f"{filename_base}_completo")
+        handler.save_csv(dados_caixa.get("entradas", []), source_name, f"{filename_base}_entradas")
+
         print("--- Busca do Demonstrativo de Caixa concluída ---")
 
     except Exception as e:

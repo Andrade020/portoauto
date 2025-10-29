@@ -1,8 +1,8 @@
 import sys
 from common.vortx_handler import VortxHandler
 
-def main(data_str):
-    print(f"--- Iniciando busca da Carteira para {data_str} ---")
+def main(exec_date):
+    print(f"--- Iniciando busca da Carteira para {exec_date} ---")
     handler = VortxHandler()
     
     source_name = handler.config.get('CARTEIRA', 'source_name')
@@ -12,17 +12,13 @@ def main(data_str):
         raise Exception("Falha na autenticação Vórtx")
 
     try:
-        params = {"cnpjFundos[]": cnpjs, "dataCarteira": data_str}
+        params = {"cnpjFundos[]": cnpjs, "dataCarteira": exec_date}
         response = handler.make_rest_request('GET', '/carteira-liberada/buscarCarteiraJSON', params=params)
         dados_carteira = response.json()
         
-        filename = f"carteira_{'_'.join(cnpjs)}_{data_str.replace('-', '')}"
-        handler.save_json(
-            data=dados_carteira,
-            source_name=source_name, # ex: 'carteira_fundo'
-            tipo="carteira",         # Tipo para nome do arquivo
-            data_ref=data_str        # Data da task
-        )
+        filename = f"carteira_{'_'.join(cnpjs)}_{exec_date.replace('-', '')}"
+        handler.save_json(dados_carteira, source_name, filename)
+        
         print("--- Busca de Carteira concluída ---")
 
     except Exception as e:

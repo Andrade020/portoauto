@@ -1,10 +1,9 @@
 import sys
 from common.vortx_handler import VortxHandler
 import requests
-import re
 
-def main(data_str):
-    print(f"--- Iniciando busca de Documentos do Fundo para {data_str} ---")
+def main(exec_date):
+    print(f"--- Iniciando busca de Documentos do Fundo para {exec_date} ---")
     handler = VortxHandler()
     
     # pega configs da seção [DOCS]
@@ -39,15 +38,7 @@ def main(data_str):
                 file_response = requests.get(url, timeout=120)
                 file_response.raise_for_status()
                 # salva usando o handler
-                safe_filename = re.sub(r'[\\/*?:"<>|]', "", nome) + ".pdf" 
-                handler.save_binary_file(
-                    content=file_response.content,
-                    source_name=source_name,   # ex: 'documentos_fundo'
-                    tipo_documento=tipo,       # ex: 'Assembleia' (vai para subpasta e nome)
-                    data_ref=data_str,         # A data da task
-                    filename_for_log_only=safe_filename # Nome original para referência
-                )
-
+                handler.save_binary_file(file_response.content, source_name, tipo, f"{nome}.pdf")
             except requests.RequestException as e:
                 print(f"  -> Falha ao baixar '{nome}': {e}")
         

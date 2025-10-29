@@ -16,6 +16,8 @@
 *.deb
 *.zst
 *.crdownload
+*.cfg
+
 temp/estoques/*.crdownload
 
 notebooks/testes (1).ipynb
